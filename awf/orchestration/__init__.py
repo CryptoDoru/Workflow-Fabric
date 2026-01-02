@@ -134,6 +134,25 @@ from awf.orchestration.orchestrator import (
     Orchestrator,
 )
 
+from awf.orchestration.registry import (
+    AdapterEntry,
+    OrchestrationAdapterRegistry,
+    create_adapter_registry,
+    auto_discover_adapters,
+)
+
+from awf.orchestration.events import (
+    EventFilter,
+    Subscription,
+    EventEmitter,
+)
+
+from awf.orchestration.state import (
+    StateManager,
+    InMemoryStateManager,
+    SQLiteStateManager,
+)
+
 
 __all__ = [
     # Types - Enums
@@ -203,4 +222,17 @@ __all__ = [
     "OrchestratorConfig",
     "ConditionEvaluator",
     "Orchestrator",
+    # Registry
+    "AdapterEntry",
+    "OrchestrationAdapterRegistry",
+    "create_adapter_registry",
+    "auto_discover_adapters",
+    # Events
+    "EventFilter",
+    "Subscription",
+    "EventEmitter",
+    # State
+    "StateManager",
+    "InMemoryStateManager",
+    "SQLiteStateManager",
 ]
