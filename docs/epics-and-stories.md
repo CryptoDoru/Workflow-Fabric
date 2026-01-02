@@ -1,568 +1,862 @@
-# AI Workflow Fabric - Epics & Stories
+# Orchestration Engine - Epics & User Stories
 
-## Vision Statement
-
-**"Kubernetes for AI Agents"** - A unified middleware layer that enables:
-1. **Agent Framework Interoperability** - LangGraph, CrewAI, AutoGen, etc.
-2. **LLM Provider Abstraction** - OpenAI, Anthropic, Google, etc.
-3. **Production Reliability** - Trust scoring, sandboxing, observability
-4. **Multi-Agent Orchestration** - Compose agents from any source
+**Version:** 1.0.0
+**Status:** Planning
+**Created:** January 2025
 
 ---
 
-## Architecture Overview
+## Epic Overview
+
+| Epic | Priority | Effort | Description |
+|------|----------|--------|-------------|
+| E1 | P0 | L | Core Workflow Engine - Basic workflow execution |
+| E2 | P0 | M | Step Execution & Routing - Execute steps via adapters |
+| E3 | P0 | L | State Management - Input mapping and context |
+| E4 | P1 | L | Reliability - Retries, fallbacks, timeouts |
+| E5 | P1 | M | Advanced Patterns - Parallel, conditional, DAG |
+| E6 | P2 | M | Events & Observability - Streaming and metrics |
+| E7 | P2 | S | REST API Integration - HTTP endpoints |
+
+**Effort Key:** S = 1-2 days, M = 3-5 days, L = 5-10 days
+
+---
+
+# Epic 1: Core Workflow Engine
+
+## Overview
+Build the foundational workflow execution engine that can parse workflow definitions, validate them, and execute steps sequentially.
+
+## User Stories
+
+### E1-S1: Define Workflow Data Types
+**As a** developer
+**I want to** define workflows using Python dataclasses
+**So that** I have type-safe workflow definitions with validation
+
+**Acceptance Criteria:**
+- [ ] `WorkflowDefinition` dataclass with id, name, version, steps, input_schema, output_map
+- [ ] `StepDefinition` dataclass with id, agent_id, input_map, timeout_ms, depends_on
+- [ ] `RetryPolicy` dataclass with max_attempts, backoff_ms, backoff_multiplier
+- [ ] `FallbackPolicy` dataclass with agent_id, static_value, skip
+- [ ] All types have `to_dict()` and `from_dict()` methods
+- [ ] Full type hints on all fields
+- [ ] JSON Schema generation for workflow definitions
+
+**Technical Notes:**
+- Place in `awf/orchestration/types.py`
+- Extend existing `Workflow` and `WorkflowStep` in `awf/core/types.py`
+- Use `@dataclass` with `field(default_factory=...)` for mutable defaults
+
+---
+
+### E1-S2: Workflow Validation
+**As a** developer
+**I want** workflows to be validated before execution
+**So that** I catch configuration errors early
+
+**Acceptance Criteria:**
+- [ ] Validate all required fields are present
+- [ ] Validate step IDs are unique within workflow
+- [ ] Validate agent_id references exist in registry (optional, at runtime)
+- [ ] Validate input_map JSONPath expressions are syntactically valid
+- [ ] Validate depends_on references existing step IDs
+- [ ] Validate no circular dependencies in step graph
+- [ ] Return clear, actionable error messages
+
+**Technical Notes:**
+- Create `WorkflowValidator` class
+- Use topological sort to detect cycles
+- Validate JSONPath syntax with simple regex (full validation at runtime)
+
+---
+
+### E1-S3: Workflow Execution Context
+**As a** developer
+**I want** each workflow execution to have isolated context
+**So that** concurrent executions don't interfere
+
+**Acceptance Criteria:**
+- [ ] `ExecutionContext` class with execution_id, workflow_id, input, start_time
+- [ ] Store step results in context as they complete
+- [ ] Store workflow state (pending, running, completed, failed)
+- [ ] Thread-safe access for concurrent step execution
+- [ ] Context is serializable for persistence
+
+**Technical Notes:**
+- Use `asyncio.Lock` for thread safety
+- Generate UUID for execution_id
+- Store in `awf/orchestration/context.py`
+
+---
+
+### E1-S4: Basic Orchestrator Class
+**As a** developer
+**I want** an Orchestrator class to manage workflow execution
+**So that** I have a clean API to run workflows
+
+**Acceptance Criteria:**
+- [ ] `Orchestrator` class with `execute(workflow, input)` method
+- [ ] Accept registry and adapter configuration in constructor
+- [ ] Return `WorkflowResult` with output, metrics, status
+- [ ] Raise `WorkflowValidationError` for invalid workflows
+- [ ] Raise `WorkflowExecutionError` for runtime failures
+- [ ] Support async execution with `await`
+
+**Technical Notes:**
+- Create `awf/orchestration/orchestrator.py`
+- Use dependency injection for registry and adapters
+- Make execute() an async method
+
+---
+
+### E1-S5: Sequential Step Execution
+**As a** developer
+**I want** steps to execute in order based on dependencies
+**So that** data flows correctly through the workflow
+
+**Acceptance Criteria:**
+- [ ] Steps with no dependencies execute first
+- [ ] Steps execute only after all `depends_on` steps complete
+- [ ] Step output is available to subsequent steps
+- [ ] Workflow fails fast if any step fails (no retries yet)
+- [ ] All steps receive correct input based on input_map
+
+**Technical Notes:**
+- Use topological sort to determine execution order
+- For sequential (no parallel yet), execute in sorted order
+- Pass execution context through each step
+
+---
+
+## Definition of Done (Epic 1)
+- [ ] All stories completed and tested
+- [ ] Unit tests with >90% coverage
+- [ ] Integration test: 3-step sequential workflow
+- [ ] Documentation in docstrings
+- [ ] No type errors (mypy clean)
+
+---
+
+# Epic 2: Step Execution & Routing
+
+## Overview
+Execute individual steps by routing to the correct framework adapter based on the agent's framework.
+
+## User Stories
+
+### E2-S1: Step Executor Class
+**As a** developer
+**I want** a dedicated class to execute individual steps
+**So that** step execution logic is encapsulated
+
+**Acceptance Criteria:**
+- [ ] `StepExecutor` class with `execute(step, context)` method
+- [ ] Look up agent manifest from registry
+- [ ] Determine correct adapter based on agent's framework
+- [ ] Create Task with mapped inputs
+- [ ] Execute via adapter and return TaskResult
+- [ ] Convert TaskResult to step result format
+
+**Technical Notes:**
+- Create `awf/orchestration/executor.py`
+- Accept dict of adapters keyed by framework name
+- Handle missing agent gracefully
+
+---
+
+### E2-S2: Input Mapping (JSONPath)
+**As a** developer
+**I want** to map workflow/step data to agent inputs using JSONPath
+**So that** I can flexibly wire data between steps
+
+**Acceptance Criteria:**
+- [ ] Support `$.input.X` to access workflow input
+- [ ] Support `$.steps.Y.output.Z` to access step output
+- [ ] Support `$.steps.Y.status` to access step status
+- [ ] Support `$.context.X` to access execution context
+- [ ] Support nested paths like `$.steps.Y.output.items[0].name`
+- [ ] Return None for missing paths (configurable: error vs None)
+
+**Technical Notes:**
+- Use `jsonpath-ng` library or implement simple subset
+- Create `InputMapper` class in `awf/orchestration/mapping.py`
+- Cache compiled JSONPath expressions
+
+---
+
+### E2-S3: Timeout Handling
+**As a** developer
+**I want** steps to respect timeout configuration
+**So that** hung agents don't block the workflow
+
+**Acceptance Criteria:**
+- [ ] Step timeout from step definition takes precedence
+- [ ] Fall back to workflow default timeout if step has none
+- [ ] Fall back to global default (60s) if neither specified
+- [ ] Cancel agent execution on timeout
+- [ ] Return TaskStatus.TIMEOUT on timeout
+- [ ] Emit timeout event
+
+**Technical Notes:**
+- Use `asyncio.wait_for()` for timeout
+- Adapters must support cancellation
+- Create custom `StepTimeoutError`
+
+---
+
+### E2-S4: Agent Resolution
+**As a** developer
+**I want** steps to resolve agents by ID from the registry
+**So that** I can reference agents declaratively
+
+**Acceptance Criteria:**
+- [ ] Look up agent manifest by agent_id
+- [ ] Verify agent status is ACTIVE
+- [ ] Check agent satisfies any required capabilities
+- [ ] Cache agent lookups for performance
+- [ ] Clear error if agent not found or inactive
+
+**Technical Notes:**
+- Use registry.get() method
+- Consider caching with TTL for performance
+- Raise `AgentNotFoundError` or `AgentInactiveError`
+
+---
+
+### E2-S5: Adapter Routing
+**As a** developer
+**I want** steps to route to the correct adapter based on agent framework
+**So that** workflows can mix agents from different frameworks
+
+**Acceptance Criteria:**
+- [ ] Determine adapter from agent's `framework` field
+- [ ] Support langgraph, crewai, autogen frameworks
+- [ ] Raise error if no adapter registered for framework
+- [ ] Support registering custom adapters
+- [ ] Log which adapter is being used for debugging
+
+**Technical Notes:**
+- Store adapters in dict keyed by framework name
+- Create `AdapterRegistry` if needed
+- Support lazy adapter initialization
+
+---
+
+## Definition of Done (Epic 2)
+- [ ] All stories completed and tested
+- [ ] Unit tests with >90% coverage
+- [ ] Integration test: workflow with agents from 2 different frameworks
+- [ ] Timeout test: verify timeout works correctly
+- [ ] Documentation in docstrings
+
+---
+
+# Epic 3: State Management
+
+## Overview
+Manage workflow state, step results, and data flow between steps.
+
+## User Stories
+
+### E3-S1: Workflow State Machine
+**As a** developer
+**I want** workflow execution to follow a clear state machine
+**So that** I can understand and track workflow progress
+
+**Acceptance Criteria:**
+- [ ] States: PENDING, RUNNING, COMPLETED, FAILED, CANCELLED
+- [ ] Valid transitions enforced (can't go COMPLETED → RUNNING)
+- [ ] State changes emit events
+- [ ] Terminal states (COMPLETED, FAILED, CANCELLED) are final
+- [ ] State accessible throughout execution
+
+**Technical Notes:**
+- Use enum for states
+- Create state machine helper class
+- Log all state transitions
+
+---
+
+### E3-S2: Step Result Storage
+**As a** developer
+**I want** step results stored in execution context
+**So that** subsequent steps can access them
+
+**Acceptance Criteria:**
+- [ ] Store step output in context.steps[step_id].output
+- [ ] Store step status in context.steps[step_id].status
+- [ ] Store step metrics in context.steps[step_id].metrics
+- [ ] Store step error in context.steps[step_id].error (if failed)
+- [ ] Results available immediately after step completes
+
+**Technical Notes:**
+- Use dict[str, StepResult] in ExecutionContext
+- StepResult dataclass with output, status, metrics, error
+- Thread-safe updates
+
+---
+
+### E3-S3: Output Mapping
+**As a** developer
+**I want** to define how workflow output is constructed from step outputs
+**So that** I can control the final workflow result
+
+**Acceptance Criteria:**
+- [ ] Define `output_map` in workflow definition
+- [ ] Map step outputs to final workflow output
+- [ ] Support nested output construction
+- [ ] Default: return last step's output if no output_map
+- [ ] Validate output_map references valid steps
+
+**Technical Notes:**
+- Reuse InputMapper for output mapping
+- Apply after all steps complete
+- Create OutputBuilder class
+
+---
+
+### E3-S4: Context Variables
+**As a** developer
+**I want** to pass context variables through the workflow
+**So that** I can share metadata like user_id, trace_id
+
+**Acceptance Criteria:**
+- [ ] Accept `context` parameter in execute()
+- [ ] Context available via `$.context.X` in input_map
+- [ ] Context passed to all step executions
+- [ ] Support trace_id and correlation_id for tracing
+- [ ] Context is immutable during execution
+
+**Technical Notes:**
+- Store in ExecutionContext
+- Include trace_id, correlation_id, user context
+- Pass to Task creation for agents
+
+---
+
+### E3-S5: Execution Persistence (Optional)
+**As a** developer
+**I want** execution state to be persisted
+**So that** I can recover from crashes
+
+**Acceptance Criteria:**
+- [ ] Persist execution state to SQLite
+- [ ] Load execution state on startup
+- [ ] Resume failed executions from last checkpoint
+- [ ] Clean up completed executions after TTL
+- [ ] Support both in-memory and persistent modes
+
+**Technical Notes:**
+- Create ExecutionStore class
+- Use SQLite for persistence
+- This is optional for v1.0, can be in-memory only
+
+---
+
+## Definition of Done (Epic 3)
+- [ ] All stories completed and tested
+- [ ] State machine tested thoroughly
+- [ ] Input/output mapping tested with complex paths
+- [ ] Context propagation verified
+
+---
+
+# Epic 4: Reliability
+
+## Overview
+Make workflow execution reliable with retries, fallbacks, and error handling.
+
+## User Stories
+
+### E4-S1: Retry Logic
+**As a** developer
+**I want** failed steps to be retried automatically
+**So that** transient failures don't fail the entire workflow
+
+**Acceptance Criteria:**
+- [ ] Retry on configurable error types (TIMEOUT, EXTERNAL_SERVICE_ERROR)
+- [ ] Don't retry on non-retryable errors (INVALID_INPUT, PERMISSION_DENIED)
+- [ ] Respect max_attempts from retry policy
+- [ ] Emit retry events
+- [ ] Track retry count in metrics
+
+**Technical Notes:**
+- Check TaskError.retryable flag
+- Default max_attempts = 3
+- Create RetryHandler class
+
+---
+
+### E4-S2: Exponential Backoff
+**As a** developer
+**I want** retries to use exponential backoff
+**So that** we don't overwhelm failing services
+
+**Acceptance Criteria:**
+- [ ] Initial delay from backoff_ms (default 1000)
+- [ ] Multiply by backoff_multiplier (default 2) each retry
+- [ ] Cap at max_backoff_ms (default 30000)
+- [ ] Add jitter (0-25% random) to prevent thundering herd
+- [ ] Log delay before each retry
+
+**Technical Notes:**
+- Use asyncio.sleep() for delay
+- Formula: min(backoff_ms * multiplier^attempt + jitter, max_backoff_ms)
+- Create BackoffCalculator utility
+
+---
+
+### E4-S3: Fallback Execution
+**As a** developer
+**I want** to define fallback behavior for failed steps
+**So that** the workflow can continue despite failures
+
+**Acceptance Criteria:**
+- [ ] Support fallback.agent_id - use alternate agent
+- [ ] Support fallback.static_value - return fixed value
+- [ ] Support fallback.skip - mark step as skipped
+- [ ] Fallback executes only after all retries exhausted
+- [ ] Fallback agent has same input as original
+- [ ] Emit fallback event
+
+**Technical Notes:**
+- Create FallbackHandler class
+- Fallback agent can also have retries
+- Track fallback_count in metrics
+
+---
+
+### E4-S4: Error Categorization
+**As a** developer
+**I want** errors to be categorized consistently
+**So that** I can handle different error types appropriately
+
+**Acceptance Criteria:**
+- [ ] Map adapter errors to standard error codes
+- [ ] Categories: INVALID_INPUT, AGENT_NOT_FOUND, TIMEOUT, EXTERNAL_SERVICE_ERROR, INTERNAL_ERROR
+- [ ] Include original error details
+- [ ] Include stack trace for debugging
+- [ ] Indicate if error is retryable
+
+**Technical Notes:**
+- Extend TaskError with consistent codes
+- Create error mapping per adapter
+- Use existing TaskError from core types
+
+---
+
+### E4-S5: Workflow-Level Timeout
+**As a** developer
+**I want** workflows to have an overall timeout
+**So that** stuck workflows don't run forever
+
+**Acceptance Criteria:**
+- [ ] Define timeout_ms at workflow level
+- [ ] Cancel all running steps on workflow timeout
+- [ ] Return partial results if available
+- [ ] Set status to TIMEOUT
+- [ ] Default workflow timeout = 1 hour
+
+**Technical Notes:**
+- Wrap entire execute() in asyncio.wait_for()
+- Track time remaining for subsequent steps
+- Create WorkflowTimeoutError
+
+---
+
+## Definition of Done (Epic 4)
+- [ ] All stories completed and tested
+- [ ] Retry tested with mock failing agent
+- [ ] Fallback tested with all three modes
+- [ ] Timeout tested at step and workflow level
+- [ ] Integration test: resilient workflow
+
+---
+
+# Epic 5: Advanced Execution Patterns
+
+## Overview
+Support parallel execution, conditional steps, and complex dependency graphs.
+
+## User Stories
+
+### E5-S1: Parallel Step Execution
+**As a** developer
+**I want** independent steps to execute in parallel
+**So that** workflows complete faster
+
+**Acceptance Criteria:**
+- [ ] Steps with same dependencies execute concurrently
+- [ ] Use asyncio.gather() for parallel execution
+- [ ] Limit concurrent steps (configurable, default 10)
+- [ ] Handle partial failures in parallel steps
+- [ ] Aggregate results from parallel steps
+
+**Technical Notes:**
+- Identify steps that can run in parallel from DAG
+- Use semaphore to limit concurrency
+- Create ParallelExecutor class
+
+---
+
+### E5-S2: Conditional Steps
+**As a** developer
+**I want** steps to execute conditionally based on expressions
+**So that** I can build branching workflows
+
+**Acceptance Criteria:**
+- [ ] Define `condition` as expression on step
+- [ ] Evaluate condition before executing step
+- [ ] Skip step if condition is false
+- [ ] Support comparison operators: ==, !=, <, >, <=, >=
+- [ ] Support boolean operators: &&, ||, !
+- [ ] Support `in` operator for lists
+- [ ] Access workflow input and step outputs in conditions
+
+**Technical Notes:**
+- Create ConditionEvaluator class
+- Use safe expression parser (no eval!)
+- Return SKIPPED status if condition false
+
+---
+
+### E5-S3: Dependency Graph (DAG)
+**As a** developer
+**I want** to define complex step dependencies
+**So that** I can model real-world workflow patterns
+
+**Acceptance Criteria:**
+- [ ] Build DAG from step depends_on
+- [ ] Detect and reject cycles
+- [ ] Compute execution order via topological sort
+- [ ] Identify steps that can run in parallel
+- [ ] Visualize DAG (optional, for debugging)
+
+**Technical Notes:**
+- Use Kahn's algorithm for topological sort
+- Store DAG in ExecutionContext
+- Create DAGBuilder class
+
+---
+
+### E5-S4: Fan-Out Pattern
+**As a** developer
+**I want** to fan out work to multiple parallel steps
+**So that** I can process lists in parallel
+
+**Acceptance Criteria:**
+- [ ] Define fan_out on step to iterate over list
+- [ ] Create parallel step instance per list item
+- [ ] Each instance receives one item as input
+- [ ] Support limiting concurrency
+- [ ] Results aggregated as list
+
+**Technical Notes:**
+- Expand single step into N steps at runtime
+- Use input_map to specify list path
+- Create FanOutHandler class
+
+---
+
+### E5-S5: Fan-In Pattern
+**As a** developer
+**I want** to aggregate results from parallel steps
+**So that** I can combine results
+
+**Acceptance Criteria:**
+- [ ] Define fan_in step that waits for multiple steps
+- [ ] Collect outputs from all fan-out steps
+- [ ] Support aggregation functions: list, merge, first
+- [ ] Handle partial results if some steps fail
+- [ ] Pass aggregated result to downstream steps
+
+**Technical Notes:**
+- Pair with fan_out steps
+- Create FanInHandler class
+- Store aggregated results
+
+---
+
+## Definition of Done (Epic 5)
+- [ ] All stories completed and tested
+- [ ] Parallel execution tested with timing verification
+- [ ] Conditional branching tested
+- [ ] Fan-out/fan-in tested with list processing
+- [ ] Performance test: parallel vs sequential
+
+---
+
+# Epic 6: Events & Observability
+
+## Overview
+Stream real-time events and collect metrics during workflow execution.
+
+## User Stories
+
+### E6-S1: Event Emitter
+**As a** developer
+**I want** workflow events emitted during execution
+**So that** I can monitor progress in real-time
+
+**Acceptance Criteria:**
+- [ ] Emit events for workflow: started, completed, failed
+- [ ] Emit events for steps: started, completed, failed, retrying, skipped
+- [ ] Events include execution_id, workflow_id, timestamp
+- [ ] Events include relevant payload (step_id, output, error)
+- [ ] Support multiple event listeners
+
+**Technical Notes:**
+- Create EventEmitter class
+- Use async callbacks for listeners
+- Events should be non-blocking
+
+---
+
+### E6-S2: Streaming Execution
+**As a** developer
+**I want** to receive events as async iterator
+**So that** I can stream progress to clients
+
+**Acceptance Criteria:**
+- [ ] `execute_streaming()` method returns AsyncIterator[Event]
+- [ ] Events yielded as they occur
+- [ ] Final event is workflow.completed or workflow.failed
+- [ ] Iterator completes when workflow completes
+- [ ] Support cancellation via iterator close
+
+**Technical Notes:**
+- Use async generator
+- Buffer events in queue
+- Create StreamingExecutor wrapper
+
+---
+
+### E6-S3: Metrics Collection
+**As a** developer
+**I want** execution metrics collected automatically
+**So that** I can analyze performance and costs
+
+**Acceptance Criteria:**
+- [ ] Collect per-step: execution_time_ms, token_usage, retries
+- [ ] Aggregate workflow: total_time, total_tokens, total_cost
+- [ ] Include in workflow result
+- [ ] Track retry_count and fallback_count
+- [ ] Calculate p50/p99 latencies (optional)
+
+**Technical Notes:**
+- Create MetricsCollector class
+- Aggregate from TaskResult.metrics
+- Include in WorkflowResult
+
+---
+
+### E6-S4: Execution History
+**As a** developer
+**I want** to query past workflow executions
+**So that** I can debug and audit
+
+**Acceptance Criteria:**
+- [ ] Store execution records with results
+- [ ] Query by workflow_id, execution_id, status
+- [ ] Query by time range
+- [ ] Include full event history
+- [ ] Configurable retention period
+
+**Technical Notes:**
+- Store in SQLite
+- Create ExecutionHistory class
+- Include events as JSON array
+
+---
+
+### E6-S5: Tracing Integration
+**As a** developer
+**I want** workflows to integrate with distributed tracing
+**So that** I can trace across services
+
+**Acceptance Criteria:**
+- [ ] Accept trace_id and parent_span_id in context
+- [ ] Generate span_id for each step
+- [ ] Include trace IDs in all events
+- [ ] Support OpenTelemetry format
+- [ ] Pass trace context to agents
+
+**Technical Notes:**
+- Use trace_id from context or generate new
+- Create spans per step
+- Optional OpenTelemetry integration
+
+---
+
+## Definition of Done (Epic 6)
+- [ ] All stories completed and tested
+- [ ] Streaming tested with async consumer
+- [ ] Metrics verified against actual execution
+- [ ] History query tested
+
+---
+
+# Epic 7: REST API Integration
+
+## Overview
+Expose orchestration capabilities through the REST API.
+
+## User Stories
+
+### E7-S1: Workflow CRUD Endpoints
+**As an** API consumer
+**I want** to manage workflows via REST API
+**So that** I can integrate with external systems
+
+**Acceptance Criteria:**
+- [ ] POST /workflows - Create workflow
+- [ ] GET /workflows - List workflows
+- [ ] GET /workflows/{id} - Get workflow
+- [ ] PUT /workflows/{id} - Update workflow
+- [ ] DELETE /workflows/{id} - Delete workflow
+- [ ] Proper error responses for all endpoints
+
+**Technical Notes:**
+- Add to awf/api/app.py
+- Create Pydantic models for request/response
+- Store workflows in registry or separate store
+
+---
+
+### E7-S2: Workflow Execution Endpoints
+**As an** API consumer
+**I want** to execute workflows via REST API
+**So that** I can trigger workflows externally
+
+**Acceptance Criteria:**
+- [ ] POST /workflows/{id}/execute - Start execution
+- [ ] GET /executions/{id} - Get execution status
+- [ ] GET /executions/{id}/events - Stream events (SSE)
+- [ ] DELETE /executions/{id} - Cancel execution
+- [ ] Return execution_id on start
+
+**Technical Notes:**
+- Use Server-Sent Events for streaming
+- Store executions for status queries
+- Support async execution (return immediately)
+
+---
+
+### E7-S3: Execution Query Endpoints
+**As an** API consumer
+**I want** to query execution history
+**So that** I can analyze past executions
+
+**Acceptance Criteria:**
+- [ ] GET /executions - List executions with filters
+- [ ] Filter by workflow_id, status, time range
+- [ ] Pagination support
+- [ ] Include summary metrics
+- [ ] Sort by start_time
+
+**Technical Notes:**
+- Query ExecutionHistory
+- Return paginated results
+- Include links to individual executions
+
+---
+
+## Definition of Done (Epic 7)
+- [ ] All endpoints implemented and tested
+- [ ] OpenAPI schema updated
+- [ ] Integration tests with TestClient
+- [ ] Documentation updated
+
+---
+
+# Technical Architecture Decisions
+
+## Decision 1: Async-First Design
+**Decision:** All orchestration is async using asyncio
+**Rationale:** Workflows involve I/O-bound operations; async enables efficient concurrency
+**Implications:** All public methods are async; use `await` for execution
+
+## Decision 2: JSONPath for Data Mapping
+**Decision:** Use JSONPath expressions for input/output mapping
+**Rationale:** Familiar syntax, flexible, handles nested data well
+**Implications:** Need JSONPath library; validate expressions at definition time
+
+## Decision 3: Event-Driven Architecture
+**Decision:** Emit events for all significant state changes
+**Rationale:** Enables real-time monitoring, debugging, and integration
+**Implications:** Event emitter infrastructure; async event dispatch
+
+## Decision 4: Pluggable Adapters
+**Decision:** Framework adapters are pluggable via dependency injection
+**Rationale:** Support new frameworks without core changes
+**Implications:** Adapter interface must be stable; registry for adapters
+
+## Decision 5: In-Memory First, Persistence Optional
+**Decision:** v1.0 works entirely in-memory; persistence is optional
+**Rationale:** Simpler implementation; most workflows complete quickly
+**Implications:** Executions lost on crash; add persistence in v1.1
+
+---
+
+# File Structure
 
 ```
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                           YOUR APPLICATION                                   │
-└─────────────────────────────────────────────────────────────────────────────┘
-                                    │
-                                    ▼
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                         AWF ORCHESTRATOR                                     │
-│  ┌───────────┐  ┌───────────┐  ┌───────────┐  ┌───────────┐  ┌───────────┐ │
-│  │ Registry  │  │  Router   │  │   Trust   │  │  Policy   │  │  Sandbox  │ │
-│  └───────────┘  └───────────┘  └───────────┘  └───────────┘  └───────────┘ │
-└─────────────────────────────────────────────────────────────────────────────┘
-          │                              │                              │
-          ▼                              ▼                              ▼
-┌─────────────────────┐    ┌─────────────────────┐    ┌─────────────────────┐
-│  FRAMEWORK ADAPTERS │    │   LLM PROVIDERS     │    │   TOOL PROVIDERS    │
-│  ┌───────────────┐  │    │  ┌───────────────┐  │    │  ┌───────────────┐  │
-│  │   LangGraph   │  │    │  │    OpenAI     │  │    │  │  Web Search   │  │
-│  │    CrewAI     │  │    │  │   Anthropic   │  │    │  │  Code Exec    │  │
-│  │   AutoGen     │  │    │  │    Google     │  │    │  │   Database    │  │
-│  │   Assistants  │  │    │  │    Mistral    │  │    │  │     MCP       │  │
-│  │    DSPy       │  │    │  │    Ollama     │  │    │  │   Custom      │  │
-│  └───────────────┘  │    │  └───────────────┘  │    │  └───────────────┘  │
-└─────────────────────┘    └─────────────────────┘    └─────────────────────┘
+awf/orchestration/
+├── __init__.py              # Public exports
+├── types.py                 # WorkflowDefinition, StepDefinition, etc.
+├── orchestrator.py          # Main Orchestrator class
+├── executor.py              # StepExecutor class
+├── context.py               # ExecutionContext, state management
+├── mapping.py               # InputMapper, OutputBuilder (JSONPath)
+├── validation.py            # WorkflowValidator
+├── reliability.py           # RetryHandler, FallbackHandler, BackoffCalculator
+├── dag.py                   # DAGBuilder, topological sort
+├── conditions.py            # ConditionEvaluator
+├── parallel.py              # ParallelExecutor, FanOutHandler, FanInHandler
+├── events.py                # EventEmitter, event types
+├── metrics.py               # MetricsCollector
+└── errors.py                # Custom exceptions
+
+tests/
+├── test_orchestration_types.py
+├── test_orchestrator.py
+├── test_step_executor.py
+├── test_mapping.py
+├── test_reliability.py
+├── test_parallel.py
+├── test_conditions.py
+└── test_orchestration_integration.py
 ```
 
 ---
 
-## Epic 1: Testing Infrastructure
-**Priority:** HIGH | **Effort:** M | **Dependencies:** None
+# Implementation Order
 
-Complete test suite for production readiness and CI/CD integration.
-
-### Story 1.1: Registry Tests
-**As a** developer  
-**I want** comprehensive tests for InMemory and SQLite registries  
-**So that** I can trust the registry works correctly in production
-
-**Acceptance Criteria:**
-- [ ] Test agent registration, retrieval, update, delete
-- [ ] Test search by capability, framework, tags, trust score
-- [ ] Test SQLite persistence across restarts
-- [ ] Test concurrent access with async locks
-- [ ] Test schema migrations
-- [ ] 90%+ code coverage
-
-### Story 1.2: API Tests
-**As a** developer  
-**I want** tests for all REST API endpoints  
-**So that** the API contract is guaranteed
-
-**Acceptance Criteria:**
-- [ ] Test all CRUD operations for agents
-- [ ] Test task submission and status
-- [ ] Test trust score endpoints
-- [ ] Test error handling and validation
-- [ ] Test authentication/authorization (when added)
-- [ ] Use pytest-asyncio and httpx
-
-### Story 1.3: Security Tests
-**As a** developer  
-**I want** tests for trust, policy, and sandbox modules  
-**So that** security guarantees are verified
-
-**Acceptance Criteria:**
-- [ ] Test trust score computation for various scenarios
-- [ ] Test policy evaluation and violation detection
-- [ ] Test sandbox tier selection based on trust
-- [ ] Test sandbox execution isolation
-- [ ] Test resource limit enforcement
-
-### Story 1.4: Integration Tests
-**As a** developer  
-**I want** end-to-end tests of the full workflow  
-**So that** all components work together correctly
-
-**Acceptance Criteria:**
-- [ ] Test: Register agent → Compute trust → Submit task → Execute
-- [ ] Test multi-agent workflow execution
-- [ ] Test failure scenarios and recovery
-- [ ] Test with real framework adapters (mocked LLMs)
+1. **E1: Core Engine** (Foundation)
+2. **E2: Step Execution** (Depends on E1)
+3. **E3: State Management** (Depends on E1)
+4. **E4: Reliability** (Depends on E2)
+5. **E5: Advanced Patterns** (Depends on E2, E3)
+6. **E6: Observability** (Can parallel with E4, E5)
+7. **E7: REST API** (Depends on all above)
 
 ---
 
-## Epic 2: LLM Provider Adapters
-**Priority:** HIGH | **Effort:** L | **Dependencies:** Core complete
-
-Enable any LLM to be exposed as an AWF agent for simple use cases.
-
-### Story 2.1: LLM Provider Base Class
-**As a** developer  
-**I want** a base class for LLM providers  
-**So that** new providers can be added consistently
-
-**Acceptance Criteria:**
-- [ ] Create `awf/providers/__init__.py`
-- [ ] Create `awf/providers/base.py` with `LLMProvider` ABC
-- [ ] Define standard interface: `complete()`, `stream()`, `embed()`
-- [ ] Support for messages format (system, user, assistant)
-- [ ] Token counting and cost estimation
-- [ ] Rate limiting support
-
-### Story 2.2: OpenAI Provider
-**As a** user  
-**I want** to use OpenAI models (GPT-4, GPT-4o, o1) as AWF agents  
-**So that** I can leverage OpenAI's capabilities in my workflows
-
-**Acceptance Criteria:**
-- [ ] Create `awf/providers/openai.py`
-- [ ] Support all GPT-4 variants, GPT-4o, o1 models
-- [ ] Support function calling / tool use
-- [ ] Support streaming responses
-- [ ] Support embeddings (text-embedding-3-small/large)
-- [ ] Automatic retry with exponential backoff
-- [ ] Cost tracking per request
-
-### Story 2.3: Anthropic Provider
-**As a** user  
-**I want** to use Claude models as AWF agents  
-**So that** I can leverage Anthropic's capabilities in my workflows
-
-**Acceptance Criteria:**
-- [ ] Create `awf/providers/anthropic.py`
-- [ ] Support Claude 3.5 Sonnet, Claude 3 Opus/Sonnet/Haiku
-- [ ] Support tool use (Anthropic's tool format)
-- [ ] Support streaming responses
-- [ ] Support extended context (200K tokens)
-- [ ] Cost tracking per request
-
-### Story 2.4: Google Provider
-**As a** user  
-**I want** to use Gemini models as AWF agents  
-**So that** I can leverage Google's capabilities in my workflows
-
-**Acceptance Criteria:**
-- [ ] Create `awf/providers/google.py`
-- [ ] Support Gemini Pro, Gemini Ultra, Gemini Flash
-- [ ] Support function calling
-- [ ] Support multimodal inputs (images, video)
-- [ ] Support streaming responses
-- [ ] Cost tracking per request
-
-### Story 2.5: Mistral Provider
-**As a** user  
-**I want** to use Mistral models as AWF agents  
-**So that** I can leverage Mistral's capabilities
-
-**Acceptance Criteria:**
-- [ ] Create `awf/providers/mistral.py`
-- [ ] Support Mistral Large, Medium, Small, Codestral
-- [ ] Support function calling
-- [ ] Support streaming
-
-### Story 2.6: Ollama/Local Provider
-**As a** user  
-**I want** to use local LLMs via Ollama  
-**So that** I can run agents without cloud dependencies
-
-**Acceptance Criteria:**
-- [ ] Create `awf/providers/ollama.py`
-- [ ] Auto-detect available models
-- [ ] Support any Ollama-compatible model
-- [ ] Support streaming
-- [ ] GPU acceleration when available
-
-### Story 2.7: LLM Agent Wrapper
-**As a** user  
-**I want** to wrap any LLM provider as an AWF agent  
-**So that** I can use LLMs directly without a framework
-
-**Acceptance Criteria:**
-- [ ] Create `awf/adapters/llm/` package
-- [ ] `LLMAgent` class that wraps any `LLMProvider`
-- [ ] Automatic manifest generation from provider capabilities
-- [ ] Support for system prompts, temperature, max_tokens
-- [ ] Tool/function calling passthrough
-- [ ] Conversation history management
-
----
-
-## Epic 3: Framework Adapters
-**Priority:** HIGH | **Effort:** L | **Dependencies:** Core complete
-
-Expand framework support beyond LangGraph and CrewAI.
-
-### Story 3.1: OpenAI Assistants Adapter
-**As a** user  
-**I want** to use OpenAI Assistants as AWF agents  
-**So that** I can leverage Assistant API features (code interpreter, retrieval)
-
-**Acceptance Criteria:**
-- [ ] Create `awf/adapters/openai_assistants/`
-- [ ] Support assistant creation and management
-- [ ] Support threads and runs
-- [ ] Support code interpreter tool
-- [ ] Support file search/retrieval tool
-- [ ] Map to ASP task/result format
-
-### Story 3.2: AutoGen Adapter
-**As a** user  
-**I want** to use Microsoft AutoGen agents in AWF  
-**So that** I can leverage AutoGen's multi-agent conversations
-
-**Acceptance Criteria:**
-- [ ] Create `awf/adapters/autogen/`
-- [ ] Support AssistantAgent, UserProxyAgent
-- [ ] Support GroupChat orchestration
-- [ ] Map AutoGen message format to ASP
-- [ ] Support code execution (with sandboxing)
-
-### Story 3.3: Semantic Kernel Adapter
-**As a** user  
-**I want** to use Microsoft Semantic Kernel plugins as AWF agents  
-**So that** I can leverage SK's plugin ecosystem
-
-**Acceptance Criteria:**
-- [ ] Create `awf/adapters/semantic_kernel/`
-- [ ] Support SK plugins as capabilities
-- [ ] Support SK planners
-- [ ] Support SK memory
-
-### Story 3.4: DSPy Adapter
-**As a** user  
-**I want** to use DSPy modules as AWF agents  
-**So that** I can leverage DSPy's optimization capabilities
-
-**Acceptance Criteria:**
-- [ ] Create `awf/adapters/dspy/`
-- [ ] Support DSPy modules as agents
-- [ ] Support signature-based I/O mapping
-- [ ] Support compiled/optimized modules
-
----
-
-## Epic 4: CLI Tool
-**Priority:** HIGH | **Effort:** M | **Dependencies:** API complete
-
-Full-featured command-line interface for AWF management.
-
-### Story 4.1: CLI Foundation
-**As a** user  
-**I want** a CLI tool to manage AWF  
-**So that** I can interact without writing code
-
-**Acceptance Criteria:**
-- [ ] Create `awf/cli/` package with Typer
-- [ ] Create entry point `awf` command
-- [ ] Support `--version`, `--help`
-- [ ] Support configuration file (`~/.awf/config.yaml`)
-- [ ] Colorized output with Rich
-
-### Story 4.2: Agent Commands
-**As a** user  
-**I want** CLI commands to manage agents  
-**So that** I can register and discover agents easily
-
-**Acceptance Criteria:**
-- [ ] `awf agent register <manifest.yaml>` - Register from file
-- [ ] `awf agent list [--framework] [--capability]` - List/search agents
-- [ ] `awf agent get <id>` - Get agent details
-- [ ] `awf agent delete <id>` - Remove agent
-- [ ] `awf agent trust <id>` - Show trust score breakdown
-- [ ] JSON and table output formats
-
-### Story 4.3: Task Commands
-**As a** user  
-**I want** CLI commands to submit and monitor tasks  
-**So that** I can run agents from the command line
-
-**Acceptance Criteria:**
-- [ ] `awf task submit <agent-id> --input '{"query": "..."}' ` - Submit task
-- [ ] `awf task status <task-id>` - Check task status
-- [ ] `awf task wait <task-id>` - Wait for completion
-- [ ] `awf task list [--agent] [--status]` - List tasks
-- [ ] Streaming output for long-running tasks
-
-### Story 4.4: Server Commands
-**As a** user  
-**I want** CLI commands to run the AWF server  
-**So that** I can start the API easily
-
-**Acceptance Criteria:**
-- [ ] `awf server start [--host] [--port]` - Start API server
-- [ ] `awf server status` - Check server status
-- [ ] Background/daemon mode support
-- [ ] Auto-reload in development mode
-
-### Story 4.5: Workflow Commands
-**As a** user  
-**I want** CLI commands to manage workflows  
-**So that** I can compose multi-agent pipelines
-
-**Acceptance Criteria:**
-- [ ] `awf workflow create <workflow.yaml>` - Create workflow
-- [ ] `awf workflow run <id> --input '{...}'` - Execute workflow
-- [ ] `awf workflow status <execution-id>` - Check execution status
-- [ ] `awf workflow list` - List workflows
-
----
-
-## Epic 5: Sandbox Implementations
-**Priority:** HIGH | **Effort:** L | **Dependencies:** Sandbox orchestrator
-
-Real isolation environments for secure agent execution.
-
-### Story 5.1: Process Sandbox
-**As a** developer  
-**I want** a subprocess-based sandbox  
-**So that** agents can be isolated without special dependencies
-
-**Acceptance Criteria:**
-- [ ] Create `awf/security/process_sandbox.py`
-- [ ] Execute agent code in subprocess
-- [ ] Resource limits via `resource` module (Unix) or `joblib` (cross-platform)
-- [ ] Timeout enforcement
-- [ ] Capture stdout/stderr
-- [ ] Works on Windows, Mac, Linux
-
-### Story 5.2: Docker Sandbox
-**As a** developer  
-**I want** a Docker-based sandbox  
-**So that** agents can be fully containerized
-
-**Acceptance Criteria:**
-- [ ] Create `awf/security/docker_sandbox.py`
-- [ ] Build minimal container images for agent execution
-- [ ] Memory and CPU limits via Docker
-- [ ] Network isolation options
-- [ ] Volume mounting for inputs/outputs
-- [ ] Auto-cleanup of containers
-
-### Story 5.3: WASM Sandbox (Future)
-**As a** developer  
-**I want** a WASM-based sandbox using Wasmtime  
-**So that** agents have minimal overhead isolation
-
-**Acceptance Criteria:**
-- [ ] Create `awf/security/wasm_sandbox.py`
-- [ ] Compile Python to WASM (via RustPython or similar)
-- [ ] Memory isolation via WASM linear memory
-- [ ] Capability-based permissions
-- [ ] ~10ms overhead target
-
----
-
-## Epic 6: Observability & Monitoring
-**Priority:** MEDIUM | **Effort:** M | **Dependencies:** Core complete
-
-Production observability for agent execution.
-
-### Story 6.1: Structured Logging
-**As an** operator  
-**I want** structured JSON logging  
-**So that** I can aggregate logs in production
-
-**Acceptance Criteria:**
-- [ ] Create `awf/observability/logging.py`
-- [ ] JSON log format with trace IDs
-- [ ] Log levels configurable per component
-- [ ] Integration with Python logging
-
-### Story 6.2: Metrics Export
-**As an** operator  
-**I want** Prometheus metrics  
-**So that** I can monitor AWF in production
-
-**Acceptance Criteria:**
-- [ ] Create `awf/observability/metrics.py`
-- [ ] Counters: tasks_submitted, tasks_completed, tasks_failed
-- [ ] Histograms: execution_time, trust_score_distribution
-- [ ] Gauges: active_agents, active_tasks
-- [ ] `/metrics` endpoint
-
-### Story 6.3: Distributed Tracing
-**As an** operator  
-**I want** OpenTelemetry tracing  
-**So that** I can trace requests across agents
-
-**Acceptance Criteria:**
-- [ ] Create `awf/observability/tracing.py`
-- [ ] OpenTelemetry SDK integration
-- [ ] Automatic span creation for tasks
-- [ ] Trace context propagation to agents
-- [ ] Export to Jaeger/Zipkin/OTLP
-
-### Story 6.4: Cost Tracking
-**As a** user  
-**I want** to track LLM costs per task  
-**So that** I can budget and optimize
-
-**Acceptance Criteria:**
-- [ ] Track token usage per LLM call
-- [ ] Cost calculation per provider (using current pricing)
-- [ ] Aggregate costs by agent, task, user
-- [ ] Cost reports via API/CLI
-
----
-
-## Epic 7: DevOps & Packaging
-**Priority:** HIGH | **Effort:** S | **Dependencies:** Tests complete
-
-Production-ready packaging and deployment.
-
-### Story 7.1: Package Configuration
-**As a** developer  
-**I want** proper pyproject.toml setup  
-**So that** AWF can be installed from PyPI
-
-**Acceptance Criteria:**
-- [ ] Update pyproject.toml with all dependencies
-- [ ] Optional dependency groups: [api], [cli], [langgraph], [crewai], [openai], [anthropic], [dev]
-- [ ] Entry points for CLI
-- [ ] Package metadata (description, classifiers, URLs)
-
-### Story 7.2: Docker Support
-**As an** operator  
-**I want** Docker images for AWF  
-**So that** I can deploy easily
-
-**Acceptance Criteria:**
-- [ ] Create `Dockerfile` for API server
-- [ ] Create `docker-compose.yml` for full stack
-- [ ] Multi-stage build for small images
-- [ ] Health check configuration
-- [ ] Publish to Docker Hub/GHCR
-
-### Story 7.3: CI/CD Pipeline
-**As a** developer  
-**I want** automated CI/CD  
-**So that** changes are tested and deployed automatically
-
-**Acceptance Criteria:**
-- [ ] Create `.github/workflows/ci.yml`
-- [ ] Run tests on PR
-- [ ] Run linting (ruff) and type checking (mypy)
-- [ ] Publish to PyPI on release tag
-- [ ] Build and push Docker images on release
-
----
-
-## Epic 8: Examples & Documentation
-**Priority:** MEDIUM | **Effort:** M | **Dependencies:** Features complete
-
-Comprehensive examples and documentation for adoption.
-
-### Story 8.1: Framework Examples
-**As a** user  
-**I want** working examples for each framework  
-**So that** I can learn how to integrate
-
-**Acceptance Criteria:**
-- [ ] `examples/langgraph_example.py` - Full LangGraph integration
-- [ ] `examples/crewai_example.py` - Full CrewAI integration
-- [ ] `examples/openai_assistants_example.py` - Assistants API
-- [ ] `examples/multi_framework.py` - Cross-framework workflow
-
-### Story 8.2: LLM Provider Examples
-**As a** user  
-**I want** examples for each LLM provider  
-**So that** I can use LLMs directly
-
-**Acceptance Criteria:**
-- [ ] `examples/llm_openai.py` - OpenAI direct usage
-- [ ] `examples/llm_anthropic.py` - Anthropic direct usage
-- [ ] `examples/llm_google.py` - Google Gemini usage
-- [ ] `examples/llm_ollama.py` - Local LLM usage
-
-### Story 8.3: Architecture Documentation
-**As a** developer  
-**I want** architecture documentation  
-**So that** I can understand and contribute
-
-**Acceptance Criteria:**
-- [ ] `docs/architecture.md` - System design
-- [ ] `docs/adapters.md` - How to write adapters
-- [ ] `docs/providers.md` - How to add LLM providers
-- [ ] `docs/security.md` - Trust and sandboxing details
-
-### Story 8.4: API Documentation
-**As a** user  
-**I want** API reference documentation  
-**So that** I can use AWF programmatically
-
-**Acceptance Criteria:**
-- [ ] Auto-generated from docstrings (mkdocs + mkdocstrings)
-- [ ] OpenAPI spec published
-- [ ] Interactive API explorer
-
----
-
-## Priority Matrix
-
-| Epic | Priority | Effort | Value | Order |
-|------|----------|--------|-------|-------|
-| 1. Testing | HIGH | M | Reliability | 1 |
-| 7. DevOps | HIGH | S | Deployability | 2 |
-| 2. LLM Providers | HIGH | L | Adoption | 3 |
-| 4. CLI | HIGH | M | Usability | 4 |
-| 5. Sandboxes | HIGH | L | Security | 5 |
-| 3. Framework Adapters | HIGH | L | Compatibility | 6 |
-| 6. Observability | MED | M | Operations | 7 |
-| 8. Documentation | MED | M | Adoption | 8 |
-
----
-
-## Implementation Order
-
-### Phase 1: Production Foundation (Current Sprint)
-1. E1.1 - Registry Tests
-2. E1.2 - API Tests  
-3. E1.3 - Security Tests
-4. E7.1 - Package Configuration
-5. E7.3 - CI/CD Pipeline
-
-### Phase 2: LLM Provider Support
-6. E2.1 - LLM Provider Base
-7. E2.2 - OpenAI Provider
-8. E2.3 - Anthropic Provider
-9. E2.4 - Google Provider
-10. E2.7 - LLM Agent Wrapper
-
-### Phase 3: CLI & Usability
-11. E4.1 - CLI Foundation
-12. E4.2 - Agent Commands
-13. E4.3 - Task Commands
-14. E4.4 - Server Commands
-
-### Phase 4: Sandbox & Security
-15. E5.1 - Process Sandbox
-16. E5.2 - Docker Sandbox
-17. E1.4 - Integration Tests
-
-### Phase 5: Framework Expansion
-18. E3.1 - OpenAI Assistants Adapter
-19. E3.2 - AutoGen Adapter
-20. E2.5 - Mistral Provider
-21. E2.6 - Ollama Provider
-
-### Phase 6: Polish
-22. E6.1-6.4 - Observability
-23. E8.1-8.4 - Documentation
-24. E7.2 - Docker Support
-
----
-
-## Definition of Done
-
-A story is complete when:
-- [ ] Code implemented and follows existing patterns
-- [ ] Unit tests written (90%+ coverage)
-- [ ] Documentation updated (docstrings, README if needed)
-- [ ] No regressions in existing tests
-- [ ] Code reviewed (self-review checklist)
-- [ ] Committed with conventional commit message
+# Test Strategy
+
+| Level | Coverage Target | Focus |
+|-------|-----------------|-------|
+| Unit | 90% | Individual classes, edge cases |
+| Integration | Core flows | Multi-step workflows, cross-framework |
+| E2E | Happy paths | API to execution to result |
+
+**Key Test Scenarios:**
+1. 3-step sequential workflow (happy path)
+2. Parallel step execution with timing verification
+3. Retry with eventual success
+4. Fallback execution on failure
+5. Conditional step skip
+6. Fan-out/fan-in with list processing
+7. Workflow timeout
+8. Cross-framework workflow (LangGraph + CrewAI)
