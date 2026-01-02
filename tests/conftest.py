@@ -303,6 +303,54 @@ def mock_crewai_crew(mock_crewai_agent):
     return mock_crew
 
 
+@pytest.fixture
+def mock_autogen_agent():
+    """Create a mock AutoGen ConversableAgent for testing."""
+    mock_agent = MagicMock()
+    mock_agent.name = "assistant"
+    mock_agent.system_message = "You are a helpful assistant."
+    mock_agent.llm_config = {"model": "gpt-4", "temperature": 0.7}
+    mock_agent.human_input_mode = "NEVER"
+    mock_agent._function_map = {}
+    mock_agent.code_execution_config = None
+    mock_agent.generate_reply = MagicMock(return_value="Hello! How can I help you?")
+    return mock_agent
+
+
+@pytest.fixture
+def mock_autogen_user_proxy():
+    """Create a mock AutoGen UserProxyAgent for testing."""
+    mock_agent = MagicMock()
+    mock_agent.name = "user_proxy"
+    mock_agent.system_message = "A human user proxy."
+    mock_agent.llm_config = None
+    mock_agent.human_input_mode = "NEVER"
+    mock_agent._function_map = {}
+    mock_agent.code_execution_config = {"work_dir": "coding", "use_docker": False}
+    mock_agent.generate_reply = MagicMock(return_value="Task completed.")
+    mock_agent.initiate_chat = MagicMock(return_value={"chat_history": [], "summary": "Done"})
+    return mock_agent
+
+
+@pytest.fixture
+def mock_autogen_group_chat(mock_autogen_agent, mock_autogen_user_proxy):
+    """Create a mock AutoGen GroupChat for testing."""
+    mock_group_chat = MagicMock()
+    mock_group_chat.agents = [mock_autogen_agent, mock_autogen_user_proxy]
+    mock_group_chat.messages = []
+    mock_group_chat.max_round = 10
+    return mock_group_chat
+
+
+@pytest.fixture
+def mock_autogen_group_manager(mock_autogen_group_chat):
+    """Create a mock AutoGen GroupChatManager for testing."""
+    mock_manager = MagicMock()
+    mock_manager.groupchat = mock_autogen_group_chat
+    mock_manager.name = "group_manager"
+    return mock_manager
+
+
 # =============================================================================
 # Async Helpers
 # =============================================================================
@@ -391,4 +439,7 @@ def pytest_configure(config):
     )
     config.addinivalue_line(
         "markers", "crewai: marks tests that require CrewAI"
+    )
+    config.addinivalue_line(
+        "markers", "autogen: marks tests that require AutoGen"
     )
