@@ -1,0 +1,127 @@
+# AI Workflow Fabric - Docker Compose Configuration
+#
+# Usage:
+#   docker-compose up                    # Start API server
+#   docker-compose up -d                 # Start in background
+#   docker-compose --profile dev up      # Start with dev mode
+#   docker-compose logs -f awf-api       # View logs
+#   docker-compose down                  # Stop services
+
+version: "3.9"
+
+services:
+  # ==========================================================================
+  # AWF API Server
+  # ==========================================================================
+  awf-api:
+    build:
+      context: .
+      target: production
+    image: ai-workflow-fabric:latest
+    container_name: awf-api
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    environment:
+      - AWF_HOST=0.0.0.0
+      - AWF_PORT=8000
+      - AWF_LOG_LEVEL=info
+      # LLM Provider API Keys (uncomment and set as needed)
+      # - OPENAI_API_KEY=${OPENAI_API_KEY}
+      # - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+      # - GOOGLE_API_KEY=${GOOGLE_API_KEY}
+      # - MISTRAL_API_KEY=${MISTRAL_API_KEY}
+    volumes:
+      - awf-data:/app/data
+    healthcheck:
+      test: ["CMD", "python", "-c", "import httpx; httpx.get('http://localhost:8000/health').raise_for_status()"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    networks:
+      - awf-network
+
+  # ==========================================================================
+  # AWF API Server (Development Mode)
+  # ==========================================================================
+  awf-api-dev:
+    build:
+      context: .
+      target: development
+    image: ai-workflow-fabric:dev
+    container_name: awf-api-dev
+    profiles:
+      - dev
+    ports:
+      - "8000:8000"
+    environment:
+      - AWF_HOST=0.0.0.0
+      - AWF_PORT=8000
+      - AWF_LOG_LEVEL=debug
+    volumes:
+      - ./awf:/app/awf:ro  # Mount source for live reload
+      - awf-data:/app/data
+    networks:
+      - awf-network
+
+  # ==========================================================================
+  # Redis (Optional - for distributed task queue)
+  # ==========================================================================
+  redis:
+    image: redis:7-alpine
+    container_name: awf-redis
+    profiles:
+      - full
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - awf-network
+
+  # ==========================================================================
+  # PostgreSQL (Optional - for persistent registry)
+  # ==========================================================================
+  postgres:
+    image: postgres:16-alpine
+    container_name: awf-postgres
+    profiles:
+      - full
+    restart: unless-stopped
+    ports:
+      - "5432:5432"
+    environment:
+      - POSTGRES_USER=awf
+      - POSTGRES_PASSWORD=awf_password
+      - POSTGRES_DB=awf
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U awf -d awf"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - awf-network
+
+# =============================================================================
+# Networks
+# =============================================================================
+networks:
+  awf-network:
+    driver: bridge
+
+# =============================================================================
+# Volumes
+# =============================================================================
+volumes:
+  awf-data:
+  redis-data:
+  postgres-data:
