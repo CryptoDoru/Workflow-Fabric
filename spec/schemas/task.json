@@ -1,0 +1,65 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://awf.dev/schemas/asp/1.0/task.json",
+  "title": "ASP Task",
+  "description": "Agent State Protocol v1.0 Task Schema",
+  "type": "object",
+  "required": ["id", "capability_id", "input", "context"],
+  "properties": {
+    "id": {
+      "type": "string",
+      "format": "uuid",
+      "description": "Unique task identifier"
+    },
+    "capability_id": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9_]*$",
+      "description": "Capability to invoke"
+    },
+    "input": {
+      "type": "object",
+      "description": "Task inputs"
+    },
+    "context": {
+      "type": "object",
+      "required": ["correlation_id", "timeout_seconds", "reliability_tier"],
+      "properties": {
+        "workflow_id": {"type": "string", "format": "uuid"},
+        "parent_task_id": {"type": ["string", "null"], "format": "uuid"},
+        "correlation_id": {"type": "string", "format": "uuid"},
+        "deadline": {"type": ["string", "null"], "format": "date-time"},
+        "timeout_seconds": {"type": "integer", "minimum": 1, "maximum": 3600, "default": 60},
+        "budget_usd": {"type": ["number", "null"], "minimum": 0},
+        "reliability_tier": {"type": "string", "enum": ["best_effort", "standard", "high", "critical"], "default": "standard"},
+        "retry_policy": {
+          "type": "object",
+          "properties": {
+            "max_attempts": {"type": "integer", "minimum": 0, "maximum": 10, "default": 3},
+            "backoff_base_ms": {"type": "integer", "minimum": 100, "default": 1000},
+            "backoff_max_ms": {"type": "integer", "minimum": 1000, "default": 30000},
+            "backoff_multiplier": {"type": "number", "minimum": 1, "default": 2}
+          }
+        },
+        "allow_human_escalation": {"type": "boolean", "default": false},
+        "human_timeout_seconds": {"type": "integer", "minimum": 60, "default": 3600}
+      }
+    },
+    "memory_refs": {
+      "type": "array",
+      "description": "ASP Extended: Memory references",
+      "items": {
+        "type": "object",
+        "required": ["scope", "namespace"],
+        "properties": {
+          "scope": {"type": "string", "enum": ["task", "workflow", "agent"]},
+          "namespace": {"type": "string"},
+          "access": {"type": "string", "enum": ["read", "write", "read_write"], "default": "read"}
+        }
+      }
+    },
+    "messages": {
+      "type": "array",
+      "description": "ASP Extended: Conversation context"
+    }
+  }
+}

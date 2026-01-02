@@ -1,0 +1,19 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://awf.dev/schemas/asp/1.0/event.json",
+  "title": "ASP Event",
+  "description": "Agent State Protocol v1.0 Event Schema",
+  "type": "object",
+  "required": ["event_id", "timestamp", "agent_id", "event_type", "correlation_id"],
+  "properties": {
+    "event_id": {"type": "string", "format": "uuid"},
+    "timestamp": {"type": "string", "format": "date-time"},
+    "agent_id": {"type": "string", "format": "uuid"},
+    "event_type": {"type": "string", "description": "Standard event type or x- prefixed custom type"},
+    "payload": {"type": "object", "description": "Event-specific data"},
+    "causation_id": {"type": "string", "format": "uuid", "description": "ID of event/task that caused this"},
+    "correlation_id": {"type": "string", "format": "uuid", "description": "Workflow trace ID"},
+    "severity": {"type": "string", "enum": ["debug", "info", "warning", "error"], "default": "info"},
+    "tags": {"type": "object", "additionalProperties": {"type": "string"}}
+  }
+}
