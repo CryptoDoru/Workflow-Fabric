@@ -6,12 +6,14 @@ This module provides the main FastAPI application for the AWF REST API.
 
 from __future__ import annotations
 
+import asyncio
+import json
 import time
 from contextlib import asynccontextmanager
-from typing import Any, AsyncIterator, Dict, Optional
+from typing import Any, AsyncIterator, Dict, List, Optional, Set
 
 try:
-    from fastapi import FastAPI, HTTPException, Query, Depends, Request
+    from fastapi import FastAPI, HTTPException, Query, Depends, Request, WebSocket, WebSocketDisconnect
     from fastapi.middleware.cors import CORSMiddleware
     from fastapi.responses import JSONResponse, StreamingResponse
 except ImportError:
@@ -101,6 +103,10 @@ class AppState:
         # Event storage for SSE (per execution)
         self.execution_events: Dict[str, list] = {}
         
+        # WebSocket connections for real-time updates
+        self.websocket_connections: Set[WebSocket] = set()
+        self.execution_subscribers: Dict[str, Set[WebSocket]] = {}
+        
         # Orchestrator setup
         self.adapter_registry = OrchestrationAdapterRegistry()
         self.orchestrator = Orchestrator(
@@ -118,11 +124,53 @@ class AppState:
         self.watcher = WatcherAgent(WatcherConfig())
     
     async def _on_workflow_event(self, event: WorkflowEvent) -> None:
-        """Handle workflow events for SSE streaming."""
+        """Handle workflow events for SSE streaming and WebSocket broadcast."""
         execution_id = event.execution_id
         if execution_id not in self.execution_events:
             self.execution_events[execution_id] = []
         self.execution_events[execution_id].append(event)
+        
+        # Broadcast to WebSocket subscribers
+        await self._broadcast_event(execution_id, event)
+    
+    async def _broadcast_event(self, execution_id: str, event: WorkflowEvent) -> None:
+        """Broadcast event to WebSocket subscribers."""
+        subscribers = self.execution_subscribers.get(execution_id, set()).copy()
+        # Also notify global subscribers
+        all_subscribers = self.execution_subscribers.get("__all__", set())
+        subscribers.update(all_subscribers)
+        
+        event_data = {
+            "type": event.type.value,
+            "execution_id": event.execution_id,
+            "workflow_id": event.workflow_id,
+            "step_id": event.step_id,
+            "timestamp": event.timestamp.isoformat() if event.timestamp else None,
+            "data": event.data,
+        }
+        message = json.dumps(event_data)
+        
+        disconnected = set()
+        for ws in subscribers:
+            try:
+                await ws.send_text(message)
+            except Exception:
+                disconnected.add(ws)
+        
+        # Clean up disconnected clients
+        for ws in disconnected:
+            subscribers.discard(ws)
+    
+    def subscribe_to_execution(self, execution_id: str, ws: WebSocket) -> None:
+        """Subscribe a WebSocket to execution events."""
+        if execution_id not in self.execution_subscribers:
+            self.execution_subscribers[execution_id] = set()
+        self.execution_subscribers[execution_id].add(ws)
+    
+    def unsubscribe_from_execution(self, execution_id: str, ws: WebSocket) -> None:
+        """Unsubscribe a WebSocket from execution events."""
+        if execution_id in self.execution_subscribers:
+            self.execution_subscribers[execution_id].discard(ws)
 
 
 _app_state: Optional[AppState] = None
@@ -948,6 +996,97 @@ def _register_routes(app: FastAPI) -> None:
                 "X-Accel-Buffering": "no",
             },
         )
+    
+    # -------------------------------------------------------------------------
+    # WebSocket Real-Time Updates
+    # -------------------------------------------------------------------------
+    
+    @app.websocket("/ws/executions/{execution_id}")
+    async def websocket_execution_events(websocket: WebSocket, execution_id: str):
+        """
+        WebSocket endpoint for real-time execution event streaming.
+        
+        Connect to receive live updates for a specific workflow execution.
+        Events are sent as JSON messages in the same format as the SSE endpoint.
+        
+        Example client connection:
+        ```javascript
+        const ws = new WebSocket('ws://localhost:8000/ws/executions/exec_123');
+        ws.onmessage = (event) => {
+            const data = JSON.parse(event.data);
+            console.log('Event:', data.type, data);
+        };
+        ```
+        """
+        state = get_app_state()
+        
+        # Accept the connection
+        await websocket.accept()
+        
+        # Track connection
+        state.websocket_connections.add(websocket)
+        state.subscribe_to_execution(execution_id, websocket)
+        
+        try:
+            # Send any existing events for this execution
+            existing_events = state.execution_events.get(execution_id, [])
+            for event in existing_events:
+                event_data = {
+                    "type": event.type.value,
+                    "execution_id": event.execution_id,
+                    "workflow_id": event.workflow_id,
+                    "step_id": event.step_id,
+                    "timestamp": event.timestamp.isoformat() if event.timestamp else None,
+                    "data": event.data,
+                }
+                await websocket.send_json(event_data)
+            
+            # Keep connection alive and wait for disconnect
+            while True:
+                # Wait for any message (ping/pong or close)
+                try:
+                    await asyncio.wait_for(websocket.receive_text(), timeout=30.0)
+                except asyncio.TimeoutError:
+                    # Send ping to keep alive
+                    await websocket.send_json({"type": "ping"})
+                    
+        except WebSocketDisconnect:
+            pass
+        finally:
+            # Clean up
+            state.websocket_connections.discard(websocket)
+            state.unsubscribe_from_execution(execution_id, websocket)
+    
+    @app.websocket("/ws/events")
+    async def websocket_all_events(websocket: WebSocket):
+        """
+        WebSocket endpoint for receiving ALL workflow events.
+        
+        Useful for dashboards that need to monitor all executions.
+        """
+        state = get_app_state()
+        
+        await websocket.accept()
+        state.websocket_connections.add(websocket)
+        
+        # Subscribe to all executions
+        all_subscription_id = "__all__"
+        if all_subscription_id not in state.execution_subscribers:
+            state.execution_subscribers[all_subscription_id] = set()
+        state.execution_subscribers[all_subscription_id].add(websocket)
+        
+        try:
+            while True:
+                try:
+                    await asyncio.wait_for(websocket.receive_text(), timeout=30.0)
+                except asyncio.TimeoutError:
+                    await websocket.send_json({"type": "ping"})
+        except WebSocketDisconnect:
+            pass
+        finally:
+            state.websocket_connections.discard(websocket)
+            if all_subscription_id in state.execution_subscribers:
+                state.execution_subscribers[all_subscription_id].discard(websocket)
     
     # -------------------------------------------------------------------------
     # Watcher Agent Webhooks
