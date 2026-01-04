@@ -84,14 +84,14 @@ ANTIGRAVITY_HEADERS = {
 
 # Model mappings from user-friendly names to Antigravity model IDs
 MODEL_MAPPINGS = {
-    # Claude models
+    # Claude models - thinking levels map to base "thinking" model
     "antigravity-claude-sonnet-4-5": "claude-sonnet-4-5",
-    "antigravity-claude-sonnet-4-5-thinking-low": "claude-sonnet-4-5-thinking-low",
-    "antigravity-claude-sonnet-4-5-thinking-medium": "claude-sonnet-4-5-thinking-medium",
-    "antigravity-claude-sonnet-4-5-thinking-high": "claude-sonnet-4-5-thinking-high",
-    "antigravity-claude-opus-4-5-thinking-low": "claude-opus-4-5-thinking-low",
-    "antigravity-claude-opus-4-5-thinking-medium": "claude-opus-4-5-thinking-medium",
-    "antigravity-claude-opus-4-5-thinking-high": "claude-opus-4-5-thinking-high",
+    "antigravity-claude-sonnet-4-5-thinking-low": "claude-sonnet-4-5-thinking",
+    "antigravity-claude-sonnet-4-5-thinking-medium": "claude-sonnet-4-5-thinking",
+    "antigravity-claude-sonnet-4-5-thinking-high": "claude-sonnet-4-5-thinking",
+    "antigravity-claude-opus-4-5-thinking-low": "claude-opus-4-5-thinking",
+    "antigravity-claude-opus-4-5-thinking-medium": "claude-opus-4-5-thinking",
+    "antigravity-claude-opus-4-5-thinking-high": "claude-opus-4-5-thinking",
     # Gemini models
     "antigravity-gemini-3-flash": "gemini-3-flash",
     "antigravity-gemini-3-pro-low": "gemini-3-pro-low",
@@ -680,11 +680,13 @@ class AntigravityProvider(LLMProvider):
         
         data = response.json()
         
-        # Parse response
+        # Parse response - Antigravity wraps response in a "response" object
+        response_data = data.get("response", data)
+        
         content = ""
         tool_calls = []
         
-        candidates = data.get("candidates", [])
+        candidates = response_data.get("candidates", [])
         if candidates:
             parts = candidates[0].get("content", {}).get("parts", [])
             for part in parts:
@@ -699,7 +701,7 @@ class AntigravityProvider(LLMProvider):
                     ))
         
         # Build usage
-        usage_data = data.get("usageMetadata", {})
+        usage_data = response_data.get("usageMetadata", {})
         usage = Usage(
             prompt_tokens=usage_data.get("promptTokenCount", 0),
             completion_tokens=usage_data.get("candidatesTokenCount", 0),
