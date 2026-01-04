@@ -5,7 +5,7 @@ Tests the AutoGen adapter registration, execution, and streaming.
 Note: These tests use mocks to avoid requiring AutoGen installation.
 """
 
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Dict
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -166,8 +166,8 @@ class TestAutoGenTaskExecution:
             agent_id="test-agent",
             status=TaskStatus.COMPLETED,
             output={"response": response},
-            started_at=datetime.utcnow(),
-            completed_at=datetime.utcnow(),
+            started_at=datetime.now(timezone.utc),
+            completed_at=datetime.now(timezone.utc),
         )
         
         assert result.status == TaskStatus.COMPLETED

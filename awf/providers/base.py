@@ -10,7 +10,7 @@ from __future__ import annotations
 import abc
 import asyncio
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timezone
 from enum import Enum
 from typing import (
     Any,
@@ -225,7 +225,7 @@ class CompletionResponse:
     # Metadata
     model: Optional[str] = None
     provider: Optional[str] = None
-    created_at: datetime = field(default_factory=datetime.utcnow)
+    created_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
     
     # Raw response for debugging
     raw_response: Optional[Dict[str, Any]] = None

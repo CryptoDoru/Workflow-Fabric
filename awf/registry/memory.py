@@ -8,7 +8,7 @@ interface for development and testing purposes.
 from __future__ import annotations
 
 import asyncio
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Dict, List, Optional
 
 from awf.adapters.base import AgentRegistry
@@ -51,7 +51,7 @@ class InMemoryRegistry(AgentRegistry):
             manifest: The AgentManifest to store
         """
         async with self._lock:
-            manifest.updated_at = datetime.utcnow()
+            manifest.updated_at = datetime.now(timezone.utc)
             self._manifests[manifest.id] = manifest
     
     async def get(self, agent_id: str) -> Optional[AgentManifest]:
@@ -156,7 +156,7 @@ class InMemoryRegistry(AgentRegistry):
         """
         async with self._lock:
             if manifest.id in self._manifests:
-                manifest.updated_at = datetime.utcnow()
+                manifest.updated_at = datetime.now(timezone.utc)
                 self._manifests[manifest.id] = manifest
                 return True
             return False
@@ -175,7 +175,7 @@ class InMemoryRegistry(AgentRegistry):
         async with self._lock:
             if agent_id in self._manifests:
                 self._manifests[agent_id].status = status
-                self._manifests[agent_id].updated_at = datetime.utcnow()
+                self._manifests[agent_id].updated_at = datetime.now(timezone.utc)
                 return True
             return False
     

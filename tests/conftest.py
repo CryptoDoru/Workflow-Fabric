@@ -6,7 +6,7 @@ This module provides shared fixtures and configuration for all tests.
 
 import asyncio
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, AsyncIterator, Dict, List, Optional
 from unittest.mock import MagicMock
 
@@ -159,8 +159,8 @@ def sample_task_result(sample_task: Task) -> TaskResult:
             token_usage={"input_tokens": 100, "output_tokens": 250},
         ),
         trace_id=sample_task.trace_id,
-        started_at=datetime.utcnow(),
-        completed_at=datetime.utcnow(),
+        started_at=datetime.now(timezone.utc),
+        completed_at=datetime.now(timezone.utc),
     )
 
 
@@ -178,8 +178,8 @@ def sample_failed_result(sample_task: Task) -> TaskResult:
         ),
         metrics=TaskMetrics(execution_time_ms=500),
         trace_id=sample_task.trace_id,
-        started_at=datetime.utcnow(),
-        completed_at=datetime.utcnow(),
+        started_at=datetime.now(timezone.utc),
+        completed_at=datetime.now(timezone.utc),
     )
 
 

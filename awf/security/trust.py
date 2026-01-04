@@ -8,7 +8,7 @@ ASP specification for computing agent trustworthiness.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional
 
 from awf.adapters.base import TrustScorer
@@ -230,7 +230,7 @@ class TrustScoringEngine(TrustScorer):
         
         # Recent audit bonus
         if info.audit_date:
-            days_since = (datetime.utcnow() - info.audit_date).days
+            days_since = (datetime.now(timezone.utc) - info.audit_date).days
             if days_since < 90:
                 score += 0.15
             elif days_since < 180:

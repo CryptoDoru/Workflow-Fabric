@@ -510,6 +510,79 @@ class AWFMCPServer:
                 }
             ],
         )
+        
+        self._prompts["create_code_review_workflow"] = MCPPrompt(
+            name="create_code_review_workflow",
+            description="Create a multi-agent code review workflow",
+            arguments=[
+                {
+                    "name": "repository",
+                    "description": "The repository or code path to review",
+                    "required": True,
+                },
+                {
+                    "name": "focus",
+                    "description": "Review focus (security, quality, performance, all)",
+                    "required": False,
+                },
+                {
+                    "name": "language",
+                    "description": "Primary programming language",
+                    "required": False,
+                }
+            ],
+        )
+        
+        self._prompts["create_support_workflow"] = MCPPrompt(
+            name="create_support_workflow",
+            description="Create a customer support ticket routing workflow",
+            arguments=[
+                {
+                    "name": "categories",
+                    "description": "Comma-separated ticket categories (e.g., billing,technical,general)",
+                    "required": False,
+                },
+                {
+                    "name": "escalation",
+                    "description": "Enable escalation path (true/false)",
+                    "required": False,
+                }
+            ],
+        )
+        
+        self._prompts["optimize_workflow"] = MCPPrompt(
+            name="optimize_workflow",
+            description="Analyze and suggest optimizations for an existing workflow",
+            arguments=[
+                {
+                    "name": "workflow_id",
+                    "description": "The workflow ID to optimize",
+                    "required": True,
+                },
+                {
+                    "name": "goal",
+                    "description": "Optimization goal (speed, cost, reliability)",
+                    "required": False,
+                }
+            ],
+        )
+        
+        self._prompts["agent_health_check"] = MCPPrompt(
+            name="agent_health_check",
+            description="Check trust scores and health status of registered agents",
+            arguments=[
+                {
+                    "name": "framework",
+                    "description": "Filter by framework (langgraph, crewai, autogen, all)",
+                    "required": False,
+                },
+                {
+                    "name": "min_trust",
+                    "description": "Minimum trust score to check (0.0-1.0)",
+                    "required": False,
+                }
+            ],
+        )
     
     # -------------------------------------------------------------------------
     # Tool Handlers
@@ -955,6 +1028,161 @@ Use the awf_create_workflow tool to create this workflow.""",
 2. Identify which step failed and why
 3. Check the agent's trust score
 4. Suggest fixes for the failure""",
+                        },
+                    }
+                ],
+            }
+        
+        elif name == "create_code_review_workflow":
+            repository = arguments.get("repository", ".")
+            focus = arguments.get("focus", "all")
+            language = arguments.get("language", "auto-detect")
+            
+            return {
+                "description": f"Create code review workflow for: {repository}",
+                "messages": [
+                    {
+                        "role": "user",
+                        "content": {
+                            "type": "text",
+                            "text": f"""Create a code review workflow for repository: "{repository}"
+Focus: {focus}
+Language: {language}
+
+The workflow should include these agents and steps:
+1. **code-parser** - Parse and analyze the codebase structure
+2. **security-scanner** - Scan for security vulnerabilities (SQL injection, XSS, etc.)
+3. **quality-reviewer** - Check code quality (complexity, duplication, best practices)
+4. **performance-analyzer** - Identify performance issues and bottlenecks
+5. **report-generator** - Compile findings into a comprehensive report
+
+Dependencies:
+- security-scanner depends on code-parser
+- quality-reviewer depends on code-parser
+- performance-analyzer depends on code-parser
+- report-generator depends on security-scanner, quality-reviewer, and performance-analyzer
+
+Use awf_register_agent to create any missing agents, then awf_create_workflow to build the workflow.""",
+                        },
+                    }
+                ],
+            }
+        
+        elif name == "create_support_workflow":
+            categories = arguments.get("categories", "billing,technical,general")
+            escalation = arguments.get("escalation", "true")
+            
+            return {
+                "description": "Create customer support ticket routing workflow",
+                "messages": [
+                    {
+                        "role": "user",
+                        "content": {
+                            "type": "text",
+                            "text": f"""Create a customer support ticket routing workflow.
+Categories: {categories}
+Escalation enabled: {escalation}
+
+The workflow should include these agents and steps:
+1. **ticket-classifier** - Classify incoming tickets by category and priority
+2. **sentiment-analyzer** - Analyze customer sentiment (urgent, frustrated, neutral)
+3. **router** - Route to appropriate specialist agent based on classification
+4. **specialist-agent** - Handle the specific ticket type
+5. **response-generator** - Generate appropriate response
+6. **escalation-handler** (if enabled) - Escalate high-priority or unresolved tickets
+
+Dependencies:
+- sentiment-analyzer depends on ticket-classifier
+- router depends on ticket-classifier and sentiment-analyzer  
+- specialist-agent depends on router
+- response-generator depends on specialist-agent
+- escalation-handler depends on response-generator (conditional)
+
+Use awf_register_agent to create the agents, then awf_create_workflow to build the workflow.""",
+                        },
+                    }
+                ],
+            }
+        
+        elif name == "optimize_workflow":
+            workflow_id = arguments.get("workflow_id")
+            goal = arguments.get("goal", "reliability")
+            
+            return {
+                "description": f"Optimize workflow: {workflow_id}",
+                "messages": [
+                    {
+                        "role": "user",
+                        "content": {
+                            "type": "text",
+                            "text": f"""Analyze and optimize workflow: {workflow_id}
+Optimization goal: {goal}
+
+Steps to perform:
+1. Use awf_get_workflow to retrieve the workflow definition
+2. Analyze the DAG structure for:
+   - Parallelization opportunities (steps that can run concurrently)
+   - Bottlenecks (steps with long execution times)
+   - Unnecessary dependencies
+   - Steps that could be combined or split
+3. Check trust scores of all agents using awf_get_trust_score
+4. Review recent executions for patterns:
+   - Which steps frequently fail?
+   - Which steps are slowest?
+   - Are timeouts appropriate?
+
+Based on the goal "{goal}":
+- **speed**: Maximize parallelization, reduce sequential chains
+- **cost**: Consolidate agents, reduce redundant processing  
+- **reliability**: Add fallback agents, increase retries, add circuit breakers
+
+Provide specific recommendations and optionally create an optimized workflow.""",
+                        },
+                    }
+                ],
+            }
+        
+        elif name == "agent_health_check":
+            framework = arguments.get("framework", "all")
+            min_trust = arguments.get("min_trust", "0.0")
+            
+            return {
+                "description": "Check agent fleet health",
+                "messages": [
+                    {
+                        "role": "user",
+                        "content": {
+                            "type": "text",
+                            "text": f"""Perform a health check on the agent fleet.
+Framework filter: {framework}
+Minimum trust score: {min_trust}
+
+Steps to perform:
+1. Use awf_list_agents to get all agents (filter by framework if specified)
+2. For each agent, use awf_get_trust_score to get detailed trust information
+3. Generate a health report including:
+   
+   **Summary:**
+   - Total agents registered
+   - Agents by framework
+   - Agents by trust tier (WASM, gVisor, gVisor Strict, Blocked)
+   
+   **Trust Analysis:**
+   - Average trust score
+   - Agents below the minimum threshold
+   - Agents with declining trust scores
+   
+   **Recommendations:**
+   - Agents that need audit
+   - Agents that should be deprecated
+   - Trust improvements needed
+   
+   **Risk Assessment:**
+   - Agents with dangerous permissions
+   - Agents without publisher verification
+   - Agents that haven't been audited
+
+Highlight any critical issues that need immediate attention.""",
                         },
                     }
                 ],

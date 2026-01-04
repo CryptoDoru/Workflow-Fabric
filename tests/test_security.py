@@ -8,7 +8,7 @@ Tests for:
 """
 
 import pytest
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 from awf.core.types import (
     AgentManifest,
@@ -241,7 +241,7 @@ class TestTrustScoringEngine:
             AuditInfo(
                 audited=True,
                 auditor="security-firm",
-                audit_date=datetime.utcnow() - timedelta(days=30),
+                audit_date=datetime.now(timezone.utc) - timedelta(days=30),
                 findings=0,
                 critical_findings=0,
             ),

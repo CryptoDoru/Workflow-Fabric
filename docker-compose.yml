@@ -1,11 +1,17 @@
 # AI Workflow Fabric - Docker Compose Configuration
 #
 # Usage:
-#   docker-compose up                    # Start API server
-#   docker-compose up -d                 # Start in background
-#   docker-compose --profile dev up      # Start with dev mode
-#   docker-compose logs -f awf-api       # View logs
-#   docker-compose down                  # Stop services
+#   docker-compose up                       # Start API server only
+#   docker-compose up -d                    # Start in background
+#   docker-compose --profile dev up         # Start API in dev mode (hot reload)
+#   docker-compose --profile web up         # Start API + Web UI
+#   docker-compose --profile full up        # Start full stack (API + Web + Redis + Postgres)
+#   docker-compose logs -f awf-api          # View API logs
+#   docker-compose logs -f awf-web          # View Web UI logs
+#   docker-compose down                     # Stop services
+#
+# Web UI available at: http://localhost:3001
+# API available at: http://localhost:8000
 
 version: "3.9"
 
@@ -108,6 +114,33 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
+    networks:
+      - awf-network
+
+  # ==========================================================================
+  # AWF Web UI (Production)
+  # ==========================================================================
+  awf-web:
+    build:
+      context: ./web
+    image: ai-workflow-fabric-web:latest
+    container_name: awf-web
+    profiles:
+      - full
+      - web
+    restart: unless-stopped
+    ports:
+      - "3001:80"
+    environment:
+      - API_URL=http://awf-api:8000
+    depends_on:
+      - awf-api
+    healthcheck:
+      test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://localhost:80/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
     networks:
       - awf-network
 

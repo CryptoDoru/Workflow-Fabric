@@ -6,9 +6,37 @@ import {
   Play, 
   Settings,
   Menu,
-  X
+  X,
+  Sun,
+  Moon
 } from 'lucide-react'
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
+
+// Hook for managing dark mode with localStorage persistence
+function useDarkMode() {
+  const [isDark, setIsDark] = useState(() => {
+    // Check localStorage first
+    const stored = localStorage.getItem('awf-theme')
+    if (stored) {
+      return stored === 'dark'
+    }
+    // Fall back to system preference
+    return window.matchMedia('(prefers-color-scheme: dark)').matches
+  })
+
+  useEffect(() => {
+    const root = window.document.documentElement
+    if (isDark) {
+      root.classList.add('dark')
+      localStorage.setItem('awf-theme', 'dark')
+    } else {
+      root.classList.remove('dark')
+      localStorage.setItem('awf-theme', 'light')
+    }
+  }, [isDark])
+
+  return [isDark, setIsDark] as const
+}
 
 const navigation = [
   { name: 'Dashboard', href: '/', icon: LayoutDashboard },
@@ -20,6 +48,7 @@ const navigation = [
 export default function Layout() {
   const location = useLocation()
   const [sidebarOpen, setSidebarOpen] = useState(false)
+  const [isDark, setIsDark] = useDarkMode()
 
   return (
     <div className="min-h-screen bg-gray-50 dark:bg-gray-900">
@@ -88,7 +117,15 @@ export default function Layout() {
               })}
             </nav>
           </div>
-          <div className="flex-shrink-0 px-2">
+          <div className="flex-shrink-0 px-2 space-y-1">
+            <button
+              onClick={() => setIsDark(!isDark)}
+              className="w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
+              aria-label={isDark ? 'Switch to light mode' : 'Switch to dark mode'}
+            >
+              {isDark ? <Sun className="h-5 w-5" /> : <Moon className="h-5 w-5" />}
+              {isDark ? 'Light Mode' : 'Dark Mode'}
+            </button>
             <Link
               to="/settings"
               className="flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
@@ -103,20 +140,29 @@ export default function Layout() {
       {/* Main content */}
       <div className="lg:pl-64">
         {/* Mobile header */}
-        <div className="sticky top-0 z-40 flex h-16 shrink-0 items-center gap-x-4 border-b border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 px-4 lg:hidden">
-          <button
-            type="button"
-            className="-m-2.5 p-2.5 text-gray-700 dark:text-gray-300"
-            onClick={() => setSidebarOpen(true)}
-          >
-            <Menu className="h-6 w-6" />
-          </button>
-          <div className="flex items-center gap-2">
-            <div className="h-8 w-8 rounded-lg bg-indigo-600 flex items-center justify-center">
-              <GitBranch className="h-5 w-5 text-white" />
+        <div className="sticky top-0 z-40 flex h-16 shrink-0 items-center justify-between border-b border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 px-4 lg:hidden">
+          <div className="flex items-center gap-x-4">
+            <button
+              type="button"
+              className="-m-2.5 p-2.5 text-gray-700 dark:text-gray-300"
+              onClick={() => setSidebarOpen(true)}
+            >
+              <Menu className="h-6 w-6" />
+            </button>
+            <div className="flex items-center gap-2">
+              <div className="h-8 w-8 rounded-lg bg-indigo-600 flex items-center justify-center">
+                <GitBranch className="h-5 w-5 text-white" />
+              </div>
+              <span className="text-xl font-bold text-gray-900 dark:text-white">AWF</span>
             </div>
-            <span className="text-xl font-bold text-gray-900 dark:text-white">AWF</span>
           </div>
+          <button
+            onClick={() => setIsDark(!isDark)}
+            className="p-2 rounded-lg text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
+            aria-label={isDark ? 'Switch to light mode' : 'Switch to dark mode'}
+          >
+            {isDark ? <Sun className="h-5 w-5" /> : <Moon className="h-5 w-5" />}
+          </button>
         </div>
 
         <main className="py-8">

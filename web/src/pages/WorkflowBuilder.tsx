@@ -156,6 +156,17 @@ export default function WorkflowBuilder() {
     }
   }, [workflowConfig.id, navigate])
 
+  const updateSelectedNodeData = useCallback((field: string, value: any) => {
+    if (!selectedNode) return
+    setNodes((nds) =>
+      nds.map((n) =>
+        n.id === selectedNode.id
+          ? { ...n, data: { ...n.data, [field]: value } }
+          : n
+      )
+    )
+  }, [selectedNode, setNodes])
+
   return (
     <div className="h-[calc(100vh-8rem)] flex flex-col">
       <div className="flex items-center justify-between mb-4">
@@ -230,12 +241,52 @@ export default function WorkflowBuilder() {
                   <input
                     type="text"
                     value={selectedNode.data.label}
-                    onChange={(e) => {
-                      setNodes((nds) =>
-                        nds.map((n) =>
-                          n.id === selectedNode.id
-                            ? { ...n, data: { ...n.data, label: e.target.value } }
-                            : n
-                        )
-                      )
-       
+                    onChange={(e) => updateSelectedNodeData('label', e.target.value)}
+                    className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-900 text-gray-900 dark:text-white text-sm"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                    Agent ID
+                  </label>
+                  <input
+                    type="text"
+                    value={selectedNode.data.agentId || ''}
+                    onChange={(e) => updateSelectedNodeData('agentId', e.target.value)}
+                    placeholder="e.g., search-agent"
+                    className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-900 text-gray-900 dark:text-white text-sm"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                    Timeout (ms)
+                  </label>
+                  <input
+                    type="number"
+                    value={selectedNode.data.timeout || 30000}
+                    onChange={(e) => updateSelectedNodeData('timeout', parseInt(e.target.value))}
+                    className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-900 text-gray-900 dark:text-white text-sm"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                    Max Retries
+                  </label>
+                  <input
+                    type="number"
+                    value={selectedNode.data.retry?.maxAttempts || 3}
+                    onChange={(e) => updateSelectedNodeData('retry', { 
+                      ...selectedNode.data.retry, 
+                      maxAttempts: parseInt(e.target.value) 
+                    })}
+                    className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-900 text-gray-900 dark:text-white text-sm"
+                  />
+                </div>
+              </div>
+            </Panel>
+          )}
+        </ReactFlow>
+      </div>
+    </div>
+  )
+}

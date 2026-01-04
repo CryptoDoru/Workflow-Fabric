@@ -12,7 +12,7 @@ import time
 import traceback
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, AsyncIterator, Callable, Dict, List, Optional, Union
 from uuid import uuid4
 
@@ -43,7 +43,7 @@ class ExecutionContext:
     
     task: Task
     graph: CompiledGraph
-    started_at: datetime = field(default_factory=datetime.utcnow)
+    started_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
     span_id: str = field(default_factory=lambda: str(uuid4()))
     cancelled: bool = False
     
@@ -274,7 +274,7 @@ class TaskExecutor:
                 trace_id=task.trace_id,
                 span_id=context.span_id,
                 started_at=context.started_at,
-                completed_at=datetime.utcnow(),
+                completed_at=datetime.now(timezone.utc),
             )
         
         except asyncio.TimeoutError:
@@ -293,7 +293,7 @@ class TaskExecutor:
                 trace_id=task.trace_id,
                 span_id=context.span_id,
                 started_at=context.started_at,
-                completed_at=datetime.utcnow(),
+                completed_at=datetime.now(timezone.utc),
             )
         
         except asyncio.CancelledError:
@@ -424,7 +424,7 @@ class TaskExecutor:
             trace_id=context.task.trace_id,
             span_id=context.span_id,
             started_at=context.started_at,
-            completed_at=datetime.utcnow(),
+            completed_at=datetime.now(timezone.utc),
         )
     
     def _create_error_result(
@@ -449,7 +449,7 @@ class TaskExecutor:
             trace_id=context.task.trace_id,
             span_id=context.span_id,
             started_at=context.started_at,
-            completed_at=datetime.utcnow(),
+            completed_at=datetime.now(timezone.utc),
         )
     
     def _is_retryable(self, error: Optional[Exception]) -> bool:

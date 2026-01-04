@@ -27,6 +27,7 @@ Usage:
 from __future__ import annotations
 
 import asyncio
+import inspect
 import json
 import logging
 import subprocess
@@ -395,7 +396,7 @@ class RemediationScript:
         timeout_ms: int,
     ) -> str:
         """Execute Python callable."""
-        if asyncio.iscoroutinefunction(self.python_callable):
+        if inspect.iscoroutinefunction(self.python_callable):
             result = await asyncio.wait_for(
                 self.python_callable(**parameters),
                 timeout=timeout_ms / 1000,

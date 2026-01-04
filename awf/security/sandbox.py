@@ -11,7 +11,7 @@ import abc
 import asyncio
 import logging
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timezone
 from enum import Enum
 from typing import Any, Callable, Dict, List, Optional, Type
 
@@ -392,7 +392,7 @@ class SandboxOrchestrator:
         Returns:
             Task execution result
         """
-        started_at = datetime.utcnow()
+        started_at = datetime.now(timezone.utc)
         
         # Select sandbox tier
         tier = self.select_tier(trust_score)
@@ -410,7 +410,7 @@ class SandboxOrchestrator:
                     retryable=False,
                 ),
                 started_at=started_at,
-                completed_at=datetime.utcnow(),
+                completed_at=datetime.now(timezone.utc),
             )
         
         # Check if tier is available
@@ -429,7 +429,7 @@ class SandboxOrchestrator:
                         retryable=True,
                     ),
                     started_at=started_at,
-                    completed_at=datetime.utcnow(),
+                    completed_at=datetime.now(timezone.utc),
                 )
         
         # Acquire sandbox
@@ -447,7 +447,7 @@ class SandboxOrchestrator:
                     retryable=True,
                 ),
                 started_at=started_at,
-                completed_at=datetime.utcnow(),
+                completed_at=datetime.now(timezone.utc),
             )
         
         try:
@@ -463,7 +463,7 @@ class SandboxOrchestrator:
                 timeout_ms=timeout,
             )
             
-            completed_at = datetime.utcnow()
+            completed_at = datetime.now(timezone.utc)
             
             # Build metrics
             metrics = TaskMetrics(
@@ -513,7 +513,7 @@ class SandboxOrchestrator:
                 ),
                 trace_id=task.trace_id,
                 started_at=started_at,
-                completed_at=datetime.utcnow(),
+                completed_at=datetime.now(timezone.utc),
             )
         
         except Exception as e:
@@ -529,7 +529,7 @@ class SandboxOrchestrator:
                 ),
                 trace_id=task.trace_id,
                 started_at=started_at,
-                completed_at=datetime.utcnow(),
+                completed_at=datetime.now(timezone.utc),
             )
         
         finally:

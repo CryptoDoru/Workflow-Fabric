@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import hashlib
 import inspect
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Callable, Dict, List, Optional, Type, Union, get_type_hints
 
 from awf.core.types import (
@@ -128,8 +128,8 @@ class ManifestGenerator:
             documentation_url=documentation_url,
             source_url=source_url,
             status=AgentStatus.REGISTERED,
-            registered_at=datetime.utcnow(),
-            updated_at=datetime.utcnow(),
+            registered_at=datetime.now(timezone.utc),
+            updated_at=datetime.now(timezone.utc),
             metadata=metadata,
         )
     

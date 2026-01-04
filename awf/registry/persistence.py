@@ -11,7 +11,7 @@ import asyncio
 import json
 import sqlite3
 from contextlib import asynccontextmanager
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, AsyncIterator, Dict, List, Optional
 
@@ -241,8 +241,8 @@ class SQLiteRegistry(AgentRegistry):
             "tags_json": json.dumps(manifest.tags),
             "capabilities_json": json.dumps([cap.name for cap in manifest.capabilities]),
             "manifest_json": json.dumps(manifest.to_dict()),
-            "registered_at": manifest.registered_at.isoformat() if manifest.registered_at else datetime.utcnow().isoformat(),
-            "updated_at": manifest.updated_at.isoformat() if manifest.updated_at else datetime.utcnow().isoformat(),
+            "registered_at": manifest.registered_at.isoformat() if manifest.registered_at else datetime.now(timezone.utc).isoformat(),
+            "updated_at": manifest.updated_at.isoformat() if manifest.updated_at else datetime.now(timezone.utc).isoformat(),
         }
     
     def _row_to_manifest(self, row: sqlite3.Row) -> AgentManifest:
@@ -321,7 +321,7 @@ class SQLiteRegistry(AgentRegistry):
         Args:
             manifest: The AgentManifest to store
         """
-        manifest.updated_at = datetime.utcnow()
+        manifest.updated_at = datetime.now(timezone.utc)
         row = self._manifest_to_row(manifest)
         
         async with self._get_cursor() as cursor:
@@ -492,7 +492,7 @@ class SQLiteRegistry(AgentRegistry):
         
         # Preserve original registration time
         manifest.registered_at = existing.registered_at
-        manifest.updated_at = datetime.utcnow()
+        manifest.updated_at = datetime.now(timezone.utc)
         
         await self.register(manifest)
         return True
@@ -508,7 +508,7 @@ class SQLiteRegistry(AgentRegistry):
         Returns:
             True if updated, False if not found
         """
-        now = datetime.utcnow().isoformat()
+        now = datetime.now(timezone.utc).isoformat()
         
         async with self._get_cursor() as cursor:
             cursor.execute("""
@@ -633,7 +633,7 @@ class RegistryMigrator:
             cursor.execute("""
                 INSERT INTO schema_version (version, applied_at)
                 VALUES (1, ?)
-            """, (datetime.utcnow().isoformat(),))
+            """, (datetime.now(timezone.utc).isoformat(),))
             self.registry._connection.commit()
             return 1
         
@@ -674,7 +674,7 @@ class RegistryMigrator:
             cursor.execute("""
                 INSERT INTO schema_version (version, applied_at)
                 VALUES (?, ?)
-            """, (version, datetime.utcnow().isoformat()))
+            """, (version, datetime.now(timezone.utc).isoformat()))
         
         self.registry._connection.commit()
         return await self.get_version()

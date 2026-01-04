@@ -11,7 +11,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import time
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, AsyncIterator, Dict, List, Optional, Union
 
 from awf.adapters.base import (
@@ -424,7 +424,7 @@ class AutoGenAdapter(BaseAdapter):
         if agent is None:
             raise AgentNotFoundError(task.agent_id)
         
-        started_at = datetime.utcnow()
+        started_at = datetime.now(timezone.utc)
         start_time = time.perf_counter()
         
         try:
@@ -447,7 +447,7 @@ class AutoGenAdapter(BaseAdapter):
                 metrics=TaskMetrics(execution_time_ms=execution_time),
                 trace_id=task.trace_id,
                 started_at=started_at,
-                completed_at=datetime.utcnow(),
+                completed_at=datetime.now(timezone.utc),
             )
         
         except asyncio.TimeoutError:
@@ -463,7 +463,7 @@ class AutoGenAdapter(BaseAdapter):
                 ),
                 metrics=TaskMetrics(execution_time_ms=execution_time),
                 started_at=started_at,
-                completed_at=datetime.utcnow(),
+                completed_at=datetime.now(timezone.utc),
             )
         
         except Exception as e:
@@ -480,7 +480,7 @@ class AutoGenAdapter(BaseAdapter):
                 ),
                 metrics=TaskMetrics(execution_time_ms=execution_time),
                 started_at=started_at,
-                completed_at=datetime.utcnow(),
+                completed_at=datetime.now(timezone.utc),
             )
     
     async def _execute_single_agent(
@@ -601,7 +601,7 @@ class AutoGenAdapter(BaseAdapter):
         if agent is None:
             raise AgentNotFoundError(task.agent_id)
         
-        started_at = datetime.utcnow()
+        started_at = datetime.now(timezone.utc)
         start_time = time.perf_counter()
         
         # Emit task started event

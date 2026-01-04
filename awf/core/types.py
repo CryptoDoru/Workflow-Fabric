@@ -8,7 +8,7 @@ All types are implemented as Python dataclasses with full type hints.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timezone
 from enum import Enum
 from typing import Any, Dict, List, Optional, Union
 from uuid import UUID, uuid4
@@ -217,7 +217,7 @@ class AgentManifest:
     
     def __post_init__(self):
         """Set default timestamps if not provided."""
-        now = datetime.utcnow()
+        now = datetime.now(timezone.utc)
         if self.registered_at is None:
             self.registered_at = now
         if self.updated_at is None:
@@ -306,7 +306,7 @@ class Task:
     
     # Metadata
     metadata: Dict[str, Any] = field(default_factory=dict)
-    created_at: datetime = field(default_factory=datetime.utcnow)
+    created_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
     
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary representation."""
@@ -502,7 +502,7 @@ class Event:
     span_id: Optional[str] = None
     
     # Timestamp
-    timestamp: datetime = field(default_factory=datetime.utcnow)
+    timestamp: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
     
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary representation."""
@@ -572,7 +572,7 @@ class TrustScore:
     score: float
     factors: TrustFactors
     sandbox_tier: SandboxTier
-    computed_at: datetime = field(default_factory=datetime.utcnow)
+    computed_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
     expires_at: Optional[datetime] = None
     
     @classmethod
@@ -674,7 +674,7 @@ class Workflow:
     # Metadata
     description: Optional[str] = None
     version: str = "1.0.0"
-    created_at: datetime = field(default_factory=datetime.utcnow)
+    created_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
     
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary representation."""
@@ -796,7 +796,7 @@ class Policy:
     # Metadata
     description: Optional[str] = None
     enabled: bool = True
-    created_at: datetime = field(default_factory=datetime.utcnow)
+    created_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
     
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary representation."""
@@ -849,7 +849,7 @@ class PolicyViolation:
     agent_id: str
     violation_type: str
     details: Dict[str, Any]
-    timestamp: datetime = field(default_factory=datetime.utcnow)
+    timestamp: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
     
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary representation."""
