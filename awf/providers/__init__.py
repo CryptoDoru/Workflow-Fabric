@@ -10,6 +10,7 @@ Supported Providers:
 - Google (Gemini Pro, Gemini Flash)
 - Mistral (Large, Medium, Small)
 - Ollama (Local LLMs)
+- Antigravity (Claude/Gemini via Google OAuth - free!)
 
 Example usage:
     from awf.providers import OpenAIProvider, Message, Role
@@ -21,6 +22,16 @@ Example usage:
     ])
     
     print(response.content)
+
+Antigravity Usage (free models via Google):
+    from awf.providers import AntigravityProvider, Message, Role
+    
+    provider = AntigravityProvider()
+    await provider.authenticate()  # Opens browser for Google sign-in
+    
+    response = await provider.complete([
+        Message(role=Role.USER, content="Hello!")
+    ], model="antigravity-claude-opus-4-5-thinking-high")
 """
 
 from awf.providers.base import (
@@ -59,6 +70,7 @@ __all__ = [
     "GoogleProvider",
     "MistralProvider",
     "OllamaProvider",
+    "AntigravityProvider",
 ]
 
 # Lazy imports for providers to avoid requiring all dependencies
@@ -78,4 +90,7 @@ def __getattr__(name: str):
     elif name == "OllamaProvider":
         from awf.providers.ollama import OllamaProvider
         return OllamaProvider
+    elif name == "AntigravityProvider":
+        from awf.providers.antigravity import AntigravityProvider
+        return AntigravityProvider
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

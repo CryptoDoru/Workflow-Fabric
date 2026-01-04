@@ -402,29 +402,26 @@ The REST API runs on port 8000 by default. Full OpenAPI documentation is availab
 │                            YOUR APPLICATION                                  │
 └─────────────────────────────────────────────────────────────────────────────┘
                                     │
-                                    ▼
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                         AWF REST API (:8000)                                 │
-│  ┌──────────────┐ ┌──────────────┐ ┌──────────────┐ ┌───────────────────┐   │
-│  │   Registry   │ │    Trust     │ │   Workflow   │ │   Watcher Agent   │   │
-│  │              │ │    Engine    │ │ Orchestrator │ │ (Auto-Remediation)│   │
-│  └──────────────┘ └──────────────┘ └──────┬───────┘ └─────────┬─────────┘   │
-└──────────────────────────────────────────┼────────────────────┼─────────────┘
-                                           │                    │
-                                      OTel │      Webhooks      │
-                                           ▼                    ▼
-                              ┌─────────────────────────────────────────────┐
-                              │           Grafana LGTM Stack                │
-                              │  Alloy → Mimir/Loki/Tempo → Grafana         │
-                              └─────────────────────────────────────────────┘
-                                                    │
-                    ┌───────────────────────────────┼───────────────────────────┐
-                    │                               │                           │
-                    ▼                               ▼                           ▼
-           ┌─────────────┐                 ┌─────────────┐              ┌─────────────┐
-           │  LangGraph  │                 │   CrewAI    │              │   AutoGen   │
-           │   Adapter   │                 │   Adapter   │              │   Adapter   │
-           └─────────────┘                 └─────────────┘              └─────────────┘
+              ┌─────────────────────┴─────────────────────┐
+              ▼                                           ▼
+    ┌─────────────────────┐                    ┌─────────────────────┐
+    │   AWF Web UI (:3001)│                    │  AWF REST API (:8000)│
+    │   React + ReactFlow │◄──── WebSocket ───►│  FastAPI             │
+    └─────────────────────┘                    └──────────┬──────────┘
+                                                          │
+                              ┌────────────────┬──────────┼──────────┐
+                              ▼                ▼          ▼          ▼
+                         ┌─────────┐    ┌──────────┐ ┌─────────┐ ┌────────┐
+                         │Registry │    │  Trust   │ │Workflow │ │Watcher │
+                         │         │    │  Engine  │ │  Orch.  │ │ Agent  │
+                         └─────────┘    └──────────┘ └────┬────┘ └────────┘
+                                                          │
+                              ┌────────────────┬──────────┴──────────┐
+                              ▼                ▼                     ▼
+                         ┌─────────┐    ┌──────────┐          ┌──────────┐
+                         │LangGraph│    │  CrewAI  │          │ AutoGen  │
+                         │ Adapter │    │  Adapter │          │ Adapter  │
+                         └─────────┘    └──────────┘          └──────────┘
 ```
 
 ---
@@ -459,7 +456,102 @@ print(response.content)  # "4"
 print(f"Cost: ${response.usage.total_cost:.6f}")
 ```
 
-**Supported:** OpenAI, Anthropic, Google (Gemini), Mistral, Ollama (local)
+**Supported:** OpenAI, Anthropic, Google (Gemini), Mistral, Ollama (local), Antigravity (free via Google OAuth!)
+
+### Antigravity Provider (Free Models!)
+
+Access Claude Opus 4.5, Claude Sonnet 4.5, and Gemini 3 Pro **for free** through Google's Antigravity API:
+
+```python
+from awf.providers import AntigravityProvider, Message, Role
+
+provider = AntigravityProvider()
+
+# First time: authenticate with Google (opens browser)
+await provider.authenticate()
+
+# Use Claude Opus 4.5 with thinking - FREE!
+response = await provider.complete([
+    Message(role=Role.USER, content="Explain quantum computing."),
+], model="antigravity-claude-opus-4-5-thinking-high")
+```
+
+Available models:
+- `antigravity-claude-opus-4-5-thinking-high/medium/low`
+- `antigravity-claude-sonnet-4-5` (with or without thinking)
+- `antigravity-gemini-3-pro-high/low`
+- `antigravity-gemini-3-flash`
+
+---
+
+## Web UI
+
+AWF includes a React-based web dashboard for managing agents and workflows visually.
+
+### Start the Web UI
+
+```bash
+cd web
+npm install
+npm run dev
+```
+
+Open http://localhost:3001 to access:
+
+| Page | Description |
+|------|-------------|
+| **Dashboard** | Overview stats, recent executions |
+| **Agents** | Agent grid with trust scores |
+| **Workflows** | Workflow list and management |
+| **Builder** | Visual DAG workflow editor with React Flow |
+| **Executions** | Execution history with status |
+
+### WebSocket Real-Time Updates
+
+Connect to execution events in real-time:
+
+```javascript
+// Subscribe to a specific execution
+const ws = new WebSocket('ws://localhost:8000/ws/executions/exec_123');
+ws.onmessage = (e) => console.log(JSON.parse(e.data));
+
+// Subscribe to ALL events (for dashboards)
+const wsAll = new WebSocket('ws://localhost:8000/ws/events');
+```
+
+---
+
+## MCP Server (AI Assistant Integration)
+
+AWF provides an MCP (Model Context Protocol) server for integration with Claude, OpenCode, and other MCP-compatible AI assistants.
+
+### Setup
+
+Add to your MCP configuration:
+
+```json
+{
+  "mcpServers": {
+    "awf": {
+      "command": "python",
+      "args": ["-m", "awf.mcp.server"]
+    }
+  }
+}
+```
+
+### Available Tools
+
+| Tool | Description |
+|------|-------------|
+| `awf_register_agent` | Register a new agent |
+| `awf_list_agents` | List/search agents |
+| `awf_get_trust_score` | Check agent trust |
+| `awf_create_workflow` | Create workflow definition |
+| `awf_execute_workflow` | Run a workflow |
+| `awf_get_execution` | Check execution status |
+
+See [docs/opencode-integration.md](docs/opencode-integration.md) for full setup instructions.
 
 ---
 
@@ -474,10 +566,11 @@ print(f"Cost: ${response.usage.total_cost:.6f}")
 | REST API | ✅ Complete |
 | Grafana Observability | ✅ Complete |
 | Watcher Agent | ✅ Complete |
-| LLM Providers | ✅ Complete |
+| LLM Providers | ✅ Complete (incl. Antigravity) |
 | CLI Tool | ✅ Complete |
-| Test Suite | ✅ 534 tests |
-| Web UI | 🚧 Planned |
+| Web UI | ✅ Complete (React + React Flow) |
+| MCP Server | ✅ Complete |
+| Test Suite | ✅ 534+ tests |
 
 ---
 
