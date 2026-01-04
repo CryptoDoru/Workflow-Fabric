@@ -1,0 +1,101 @@
+# Grafana Datasource Provisioning for AWF
+# Auto-configures connections to Mimir, Loki, and Tempo
+
+apiVersion: 1
+
+deleteDatasources:
+  - name: Prometheus
+    orgId: 1
+  - name: Loki
+    orgId: 1
+  - name: Tempo
+    orgId: 1
+
+datasources:
+  # ===========================================
+  # Mimir (Prometheus-compatible metrics)
+  # ===========================================
+  - name: Mimir
+    type: prometheus
+    uid: mimir
+    access: proxy
+    url: http://mimir:9009/prometheus
+    isDefault: true
+    editable: false
+    jsonData:
+      httpMethod: POST
+      manageAlerts: true
+      prometheusType: Mimir
+      prometheusVersion: 2.14.0
+      # Enable exemplars for trace correlation
+      exemplarTraceIdDestinations:
+        - name: traceId
+          datasourceUid: tempo
+          urlDisplayLabel: "View Trace"
+
+  # ===========================================
+  # Loki (Logs)
+  # ===========================================
+  - name: Loki
+    type: loki
+    uid: loki
+    access: proxy
+    url: http://loki:3100
+    editable: false
+    jsonData:
+      maxLines: 1000
+      # Enable derived fields for trace correlation
+      derivedFields:
+        - name: TraceID
+          matcherRegex: '"trace_id":"([a-f0-9]+)"'
+          url: "$${__value.raw}"
+          datasourceUid: tempo
+          urlDisplayLabel: "View Trace"
+        - name: ExecutionID
+          matcherRegex: '"execution_id":"([a-zA-Z0-9-]+)"'
+          url: '/explore?orgId=1&left=["now-1h","now","loki",{"expr":"{execution_id=\"$${__value.raw}\"}"}]'
+          urlDisplayLabel: "Filter by Execution"
+
+  # ===========================================
+  # Tempo (Traces)
+  # ===========================================
+  - name: Tempo
+    type: tempo
+    uid: tempo
+    access: proxy
+    url: http://tempo:3200
+    editable: false
+    jsonData:
+      httpMethod: GET
+      tracesToLogs:
+        datasourceUid: loki
+        filterByTraceID: true
+        filterBySpanID: false
+        mapTagNamesEnabled: true
+        mappedTags:
+          - key: execution_id
+            value: execution_id
+          - key: workflow_id
+            value: workflow_id
+          - key: step_id
+            value: step_id
+      tracesToMetrics:
+        datasourceUid: mimir
+        spanStartTimeShift: -1h
+        spanEndTimeShift: 1h
+        tags:
+          - key: execution_id
+            value: execution_id
+          - key: agent_id
+            value: agent_id
+        queries:
+          - name: Step Duration
+            query: 'awf_step_duration_ms{execution_id="$${__span.tags.execution_id}"}'
+          - name: Token Usage
+            query: 'awf_tokens_total{execution_id="$${__span.tags.execution_id}"}'
+      serviceMap:
+        datasourceUid: mimir
+      nodeGraph:
+        enabled: true
+      lokiSearch:
+        datasourceUid: loki

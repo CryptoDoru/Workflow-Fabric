@@ -1,0 +1,268 @@
+# AWF SLO Recording Rules
+# These rules pre-compute SLO metrics for efficient querying
+#
+# Load into Mimir via ruler API or config file
+
+groups:
+  # ===========================================
+  # Workflow SLOs
+  # ===========================================
+  - name: awf_workflow_slos
+    interval: 30s
+    rules:
+      # Workflow success rate (5m window)
+      - record: awf:workflow_success_rate:ratio_rate5m
+        expr: |
+          sum(rate(awf_workflow_total{status="completed"}[5m]))
+          /
+          sum(rate(awf_workflow_total[5m]))
+
+      # Workflow success rate (1h window)
+      - record: awf:workflow_success_rate:ratio_rate1h
+        expr: |
+          sum(rate(awf_workflow_total{status="completed"}[1h]))
+          /
+          sum(rate(awf_workflow_total[1h]))
+
+      # Workflow success rate (24h window)
+      - record: awf:workflow_success_rate:ratio_rate24h
+        expr: |
+          sum(rate(awf_workflow_total{status="completed"}[24h]))
+          /
+          sum(rate(awf_workflow_total[24h]))
+
+      # Per-workflow success rate
+      - record: awf:workflow_success_rate:ratio_rate5m:by_workflow
+        expr: |
+          sum by (workflow_id) (rate(awf_workflow_total{status="completed"}[5m]))
+          /
+          sum by (workflow_id) (rate(awf_workflow_total[5m]))
+
+  # ===========================================
+  # Step Latency SLOs
+  # ===========================================
+  - name: awf_step_latency_slos
+    interval: 30s
+    rules:
+      # Step latency P50
+      - record: awf:step_latency_p50:5m
+        expr: |
+          histogram_quantile(0.50, 
+            sum(rate(awf_step_duration_ms_bucket[5m])) by (le)
+          )
+
+      # Step latency P95
+      - record: awf:step_latency_p95:5m
+        expr: |
+          histogram_quantile(0.95, 
+            sum(rate(awf_step_duration_ms_bucket[5m])) by (le)
+          )
+
+      # Step latency P99
+      - record: awf:step_latency_p99:5m
+        expr: |
+          histogram_quantile(0.99, 
+            sum(rate(awf_step_duration_ms_bucket[5m])) by (le)
+          )
+
+      # Per-agent latency P99
+      - record: awf:step_latency_p99:5m:by_agent
+        expr: |
+          histogram_quantile(0.99, 
+            sum by (agent_id, le) (rate(awf_step_duration_ms_bucket[5m]))
+          )
+
+      # Per-agent latency P50
+      - record: awf:step_latency_p50:5m:by_agent
+        expr: |
+          histogram_quantile(0.50, 
+            sum by (agent_id, le) (rate(awf_step_duration_ms_bucket[5m]))
+          )
+
+  # ===========================================
+  # Error Budget SLOs
+  # ===========================================
+  - name: awf_error_budget
+    interval: 1m
+    rules:
+      # Error budget remaining (99.9% SLO target)
+      - record: awf:error_budget_remaining:ratio
+        expr: |
+          1 - (
+            (1 - awf:workflow_success_rate:ratio_rate24h)
+            /
+            (1 - 0.999)
+          )
+
+      # Error budget remaining (99.5% SLO target)
+      - record: awf:error_budget_remaining_99_5:ratio
+        expr: |
+          1 - (
+            (1 - awf:workflow_success_rate:ratio_rate24h)
+            /
+            (1 - 0.995)
+          )
+
+      # Error budget burn rate (1h vs 24h baseline)
+      - record: awf:error_budget_burn_rate:ratio
+        expr: |
+          (1 - awf:workflow_success_rate:ratio_rate1h)
+          /
+          (1 - awf:workflow_success_rate:ratio_rate24h)
+
+  # ===========================================
+  # Agent Health SLOs
+  # ===========================================
+  - name: awf_agent_health
+    interval: 30s
+    rules:
+      # Per-agent success rate
+      - record: awf:agent_success_rate:ratio_rate5m
+        expr: |
+          sum by (agent_id) (rate(awf_step_duration_ms_count{status="completed"}[5m]))
+          /
+          sum by (agent_id) (rate(awf_step_duration_ms_count[5m]))
+
+      # Per-agent success rate (1h)
+      - record: awf:agent_success_rate:ratio_rate1h
+        expr: |
+          sum by (agent_id) (rate(awf_step_duration_ms_count{status="completed"}[1h]))
+          /
+          sum by (agent_id) (rate(awf_step_duration_ms_count[1h]))
+
+      # Agent availability (has executed in last 5m)
+      - record: awf:agent_available:bool
+        expr: |
+          sum by (agent_id) (rate(awf_step_duration_ms_count[5m])) > 0
+
+      # Count of healthy agents (>95% success rate)
+      - record: awf:healthy_agents:count
+        expr: |
+          count(awf:agent_success_rate:ratio_rate1h > 0.95)
+
+      # Count of degraded agents (<90% success rate)
+      - record: awf:degraded_agents:count
+        expr: |
+          count(awf:agent_success_rate:ratio_rate1h < 0.90)
+
+  # ===========================================
+  # Cost and Token SLOs
+  # ===========================================
+  - name: awf_cost_slos
+    interval: 1m
+    rules:
+      # Total cost per hour
+      - record: awf:cost_per_hour:rate1h
+        expr: |
+          sum(rate(awf_cost_usd_total[1h])) * 3600
+
+      # Total tokens per hour
+      - record: awf:tokens_per_hour:rate1h
+        expr: |
+          sum(rate(awf_tokens_total[1h])) * 3600
+
+      # Cost per workflow (average)
+      - record: awf:cost_per_workflow:avg1h
+        expr: |
+          sum(rate(awf_cost_usd_total[1h]))
+          /
+          sum(rate(awf_workflow_total[1h]))
+
+      # Tokens per workflow (average)
+      - record: awf:tokens_per_workflow:avg1h
+        expr: |
+          sum(rate(awf_tokens_total[1h]))
+          /
+          sum(rate(awf_workflow_total[1h]))
+
+  # ===========================================
+  # Alerting Rules
+  # ===========================================
+  - name: awf_alerts
+    rules:
+      # High error rate alert
+      - alert: AWFHighErrorRate
+        expr: awf:workflow_success_rate:ratio_rate5m < 0.95
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "AWF workflow success rate below 95%"
+          description: "Workflow success rate is {{ $value | humanizePercentage }} over the last 5 minutes"
+
+      # Critical error rate alert
+      - alert: AWFCriticalErrorRate
+        expr: awf:workflow_success_rate:ratio_rate5m < 0.90
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "AWF workflow success rate below 90%"
+          description: "Workflow success rate is {{ $value | humanizePercentage }} over the last 5 minutes"
+
+      # High latency alert
+      - alert: AWFHighLatency
+        expr: awf:step_latency_p99:5m > 30000
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "AWF P99 step latency above 30s"
+          description: "P99 step latency is {{ $value | humanizeDuration }}"
+
+      # Error budget exhausted
+      - alert: AWFErrorBudgetExhausted
+        expr: awf:error_budget_remaining:ratio < 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "AWF error budget exhausted"
+          description: "Error budget is exhausted for 99.9% SLO target"
+
+      # Error budget burning fast
+      - alert: AWFErrorBudgetBurningFast
+        expr: awf:error_budget_burn_rate:ratio > 10
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "AWF error budget burning 10x faster than baseline"
+          description: "Error budget burn rate is {{ $value }}x normal"
+
+      # Agent degraded
+      - alert: AWFAgentDegraded
+        expr: awf:agent_success_rate:ratio_rate1h < 0.90
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Agent {{ $labels.agent_id }} is degraded"
+          description: "Agent success rate is {{ $value | humanizePercentage }}"
+
+      # High retry rate
+      - alert: AWFHighRetryRate
+        expr: |
+          sum(rate(awf_retry_total[5m]))
+          /
+          sum(rate(awf_step_duration_ms_count[5m]))
+          > 0.1
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "AWF retry rate above 10%"
+          description: "More than 10% of steps are being retried"
+
+      # Cost spike
+      - alert: AWFCostSpike
+        expr: |
+          awf:cost_per_hour:rate1h
+          > 
+          avg_over_time(awf:cost_per_hour:rate1h[24h]) * 2
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: "AWF cost spike detected"
+          description: "Current hourly cost is 2x the 24h average"

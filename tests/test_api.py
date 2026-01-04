@@ -1036,3 +1036,416 @@ class TestIntegration:
         # Get health
         response = client.get("/health")
         assert response.json()["registry_count"] == 2
+
+
+# =============================================================================
+# Workflow CRUD Tests
+# =============================================================================
+
+
+@pytest.fixture
+def sample_workflow_data():
+    """Sample workflow definition data."""
+    return {
+        "id": "test-workflow-001",
+        "name": "Test Research Workflow",
+        "description": "A test workflow for research tasks",
+        "steps": [
+            {
+                "id": "research",
+                "agent_id": "research-agent",
+                "input_map": {"query": "$.input.topic"},
+                "retry": {
+                    "max_attempts": 3,
+                    "backoff_ms": 1000,
+                    "backoff_multiplier": 2.0,
+                    "max_backoff_ms": 30000,
+                },
+            },
+            {
+                "id": "write",
+                "agent_id": "writer-agent",
+                "input_map": {"content": "$.steps.research.output.data"},
+                "depends_on": ["research"],
+                "fallback": {
+                    "skip": True,
+                },
+            },
+        ],
+        "timeout_ms": 60000,
+    }
+
+
+@pytest.fixture
+def minimal_workflow_data():
+    """Minimal valid workflow data."""
+    return {
+        "id": "minimal-workflow",
+        "name": "Minimal Workflow",
+        "steps": [
+            {
+                "id": "step1",
+                "agent_id": "test-agent",
+            },
+        ],
+    }
+
+
+class TestWorkflowCRUD:
+    """Tests for workflow CRUD endpoints."""
+
+    def test_create_workflow_success(self, client, sample_workflow_data):
+        """Test successful workflow creation."""
+        response = client.post("/workflows", json=sample_workflow_data)
+        
+        assert response.status_code == 201
+        data = response.json()
+        assert data["id"] == sample_workflow_data["id"]
+        assert data["name"] == sample_workflow_data["name"]
+        assert data["description"] == sample_workflow_data["description"]
+        assert len(data["steps"]) == 2
+        assert data["timeout_ms"] == sample_workflow_data["timeout_ms"]
+
+    def test_create_minimal_workflow(self, client, minimal_workflow_data):
+        """Test creating workflow with minimal fields."""
+        response = client.post("/workflows", json=minimal_workflow_data)
+        
+        assert response.status_code == 201
+        data = response.json()
+        assert data["id"] == minimal_workflow_data["id"]
+        assert len(data["steps"]) == 1
+
+    def test_create_duplicate_workflow_fails(self, client, sample_workflow_data):
+        """Test that creating duplicate workflow returns 409."""
+        client.post("/workflows", json=sample_workflow_data)
+        
+        response = client.post("/workflows", json=sample_workflow_data)
+        assert response.status_code == 409
+        assert "already exists" in response.json()["message"]
+
+    def test_get_workflow_success(self, client, sample_workflow_data):
+        """Test getting an existing workflow."""
+        client.post("/workflows", json=sample_workflow_data)
+        
+        response = client.get(f"/workflows/{sample_workflow_data['id']}")
+        
+        assert response.status_code == 200
+        data = response.json()
+        assert data["id"] == sample_workflow_data["id"]
+        assert data["name"] == sample_workflow_data["name"]
+
+    def test_get_workflow_not_found(self, client):
+        """Test getting non-existent workflow returns 404."""
+        response = client.get("/workflows/nonexistent-workflow")
+        
+        assert response.status_code == 404
+        assert "not found" in response.json()["message"]
+
+    def test_list_workflows_empty(self, client):
+        """Test listing workflows when none exist."""
+        response = client.get("/workflows")
+        
+        assert response.status_code == 200
+        assert response.json() == []
+
+    def test_list_workflows_returns_all(self, client, sample_workflow_data, minimal_workflow_data):
+        """Test listing returns all workflows."""
+        client.post("/workflows", json=sample_workflow_data)
+        client.post("/workflows", json=minimal_workflow_data)
+        
+        response = client.get("/workflows")
+        
+        assert response.status_code == 200
+        data = response.json()
+        assert len(data) == 2
+
+    def test_delete_workflow_success(self, client, sample_workflow_data):
+        """Test successful workflow deletion."""
+        client.post("/workflows", json=sample_workflow_data)
+        
+        response = client.delete(f"/workflows/{sample_workflow_data['id']}")
+        assert response.status_code == 204
+        
+        # Verify deleted
+        response = client.get(f"/workflows/{sample_workflow_data['id']}")
+        assert response.status_code == 404
+
+    def test_delete_workflow_not_found(self, client):
+        """Test deleting non-existent workflow returns 404."""
+        response = client.delete("/workflows/nonexistent-workflow")
+        assert response.status_code == 404
+
+    def test_workflow_step_with_retry_policy(self, client):
+        """Test workflow step with retry policy."""
+        workflow = {
+            "id": "retry-workflow",
+            "name": "Retry Workflow",
+            "steps": [
+                {
+                    "id": "step1",
+                    "agent_id": "test-agent",
+                    "retry": {
+                        "max_attempts": 5,
+                        "backoff_ms": 500,
+                        "backoff_multiplier": 1.5,
+                        "max_backoff_ms": 10000,
+                    },
+                },
+            ],
+        }
+        
+        response = client.post("/workflows", json=workflow)
+        assert response.status_code == 201
+        
+        # Verify retry config is stored
+        data = response.json()
+        step = data["steps"][0]
+        assert step.get("retry") is not None
+
+    def test_workflow_step_with_fallback_policy(self, client):
+        """Test workflow step with fallback policy."""
+        workflow = {
+            "id": "fallback-workflow",
+            "name": "Fallback Workflow",
+            "steps": [
+                {
+                    "id": "step1",
+                    "agent_id": "test-agent",
+                    "fallback": {
+                        "static_value": {"default": "value"},
+                    },
+                },
+            ],
+        }
+        
+        response = client.post("/workflows", json=workflow)
+        assert response.status_code == 201
+
+    def test_workflow_step_with_condition(self, client):
+        """Test workflow step with condition."""
+        workflow = {
+            "id": "conditional-workflow",
+            "name": "Conditional Workflow",
+            "steps": [
+                {
+                    "id": "step1",
+                    "agent_id": "test-agent",
+                },
+                {
+                    "id": "step2",
+                    "agent_id": "test-agent-2",
+                    "depends_on": ["step1"],
+                    "condition": "$.input.flag == True",
+                },
+            ],
+        }
+        
+        response = client.post("/workflows", json=workflow)
+        assert response.status_code == 201
+        
+        data = response.json()
+        assert data["steps"][1].get("condition") == "$.input.flag == True"
+
+
+# =============================================================================
+# Workflow Execution Tests
+# =============================================================================
+
+
+class TestWorkflowExecution:
+    """Tests for workflow execution endpoints."""
+
+    def test_execute_workflow_not_found(self, client):
+        """Test executing non-existent workflow returns 404."""
+        response = client.post(
+            "/workflows/nonexistent/execute",
+            json={"input": {"test": "data"}}
+        )
+        assert response.status_code == 404
+
+    def test_get_execution_not_found(self, client):
+        """Test getting non-existent execution returns 404."""
+        response = client.get("/executions/nonexistent-execution")
+        assert response.status_code == 404
+
+    def test_cancel_execution_not_found(self, client):
+        """Test cancelling non-existent execution returns 404."""
+        response = client.post("/executions/nonexistent-execution/cancel")
+        assert response.status_code == 404
+
+    def test_list_executions_empty(self, client):
+        """Test listing executions when none exist."""
+        response = client.get("/executions")
+        
+        assert response.status_code == 200
+        assert response.json() == []
+
+    def test_list_executions_filter_by_workflow_id(self, client):
+        """Test filtering executions by workflow ID."""
+        response = client.get("/executions?workflow_id=test-workflow")
+        
+        assert response.status_code == 200
+        assert response.json() == []
+
+    def test_list_executions_filter_by_status(self, client):
+        """Test filtering executions by status."""
+        response = client.get("/executions?status=completed")
+        
+        assert response.status_code == 200
+        assert response.json() == []
+
+    def test_execution_request_validation(self, client, minimal_workflow_data):
+        """Test execution request validation."""
+        client.post("/workflows", json=minimal_workflow_data)
+        
+        # Valid timeout
+        response = client.post(
+            f"/workflows/{minimal_workflow_data['id']}/execute",
+            json={
+                "input": {"test": "data"},
+                "timeout_ms": 60000,
+            }
+        )
+        # Will fail due to missing agent, but validates request
+        assert response.status_code in (202, 500)
+
+    def test_execution_request_with_context(self, client, minimal_workflow_data):
+        """Test execution request with context."""
+        client.post("/workflows", json=minimal_workflow_data)
+        
+        response = client.post(
+            f"/workflows/{minimal_workflow_data['id']}/execute",
+            json={
+                "input": {"test": "data"},
+                "context": {"user_id": "user-123"},
+                "trace_id": "trace-456",
+                "correlation_id": "corr-789",
+            }
+        )
+        # Will fail due to missing agent, but validates request
+        assert response.status_code in (202, 500)
+
+
+# =============================================================================
+# SSE Streaming Tests
+# =============================================================================
+
+
+class TestSSEStreaming:
+    """Tests for SSE streaming endpoint."""
+
+    def test_sse_endpoint_exists(self, client):
+        """Test that SSE endpoint exists and returns correct content type."""
+        # This will timeout since there's no execution, but validates endpoint exists
+        import httpx
+        
+        # Use a short timeout to test the endpoint exists
+        response = client.get(
+            "/executions/test-execution/events",
+            headers={"Accept": "text/event-stream"}
+        )
+        
+        # Should return 200 with event-stream content type
+        assert response.status_code == 200
+        assert "text/event-stream" in response.headers.get("content-type", "")
+
+
+# =============================================================================
+# Workflow Integration Tests
+# =============================================================================
+
+
+class TestWorkflowIntegration:
+    """Integration tests for workflow features."""
+
+    def test_workflow_lifecycle(self, client, minimal_workflow_data):
+        """Test complete workflow lifecycle: create, read, delete."""
+        # Create
+        response = client.post("/workflows", json=minimal_workflow_data)
+        assert response.status_code == 201
+        workflow_id = response.json()["id"]
+        
+        # Read
+        response = client.get(f"/workflows/{workflow_id}")
+        assert response.status_code == 200
+        assert response.json()["id"] == workflow_id
+        
+        # List
+        response = client.get("/workflows")
+        assert response.status_code == 200
+        assert len(response.json()) == 1
+        
+        # Delete
+        response = client.delete(f"/workflows/{workflow_id}")
+        assert response.status_code == 204
+        
+        # Verify deleted
+        response = client.get(f"/workflows/{workflow_id}")
+        assert response.status_code == 404
+        
+        # List should be empty
+        response = client.get("/workflows")
+        assert response.json() == []
+
+    def test_workflow_with_dependencies(self, client):
+        """Test workflow with step dependencies."""
+        workflow = {
+            "id": "dependency-workflow",
+            "name": "Dependency Workflow",
+            "steps": [
+                {
+                    "id": "step1",
+                    "agent_id": "agent-1",
+                },
+                {
+                    "id": "step2",
+                    "agent_id": "agent-2",
+                    "depends_on": ["step1"],
+                },
+                {
+                    "id": "step3",
+                    "agent_id": "agent-3",
+                    "depends_on": ["step1", "step2"],
+                },
+            ],
+        }
+        
+        response = client.post("/workflows", json=workflow)
+        assert response.status_code == 201
+        
+        data = response.json()
+        assert len(data["steps"]) == 3
+        assert data["steps"][1].get("dependsOn") == ["step1"]
+        assert data["steps"][2].get("dependsOn") == ["step1", "step2"]
+
+    def test_workflow_with_input_mapping(self, client):
+        """Test workflow with JSONPath input mapping."""
+        workflow = {
+            "id": "mapping-workflow",
+            "name": "Mapping Workflow",
+            "steps": [
+                {
+                    "id": "step1",
+                    "agent_id": "agent-1",
+                    "input_map": {
+                        "query": "$.input.topic",
+                        "limit": "$.input.max_results",
+                    },
+                },
+                {
+                    "id": "step2",
+                    "agent_id": "agent-2",
+                    "depends_on": ["step1"],
+                    "input_map": {
+                        "data": "$.steps.step1.output.results",
+                    },
+                },
+            ],
+        }
+        
+        response = client.post("/workflows", json=workflow)
+        assert response.status_code == 201
+        
+        data = response.json()
+        assert data["steps"][0].get("inputMap") is not None
+        assert data["steps"][1].get("inputMap") is not None

@@ -13,7 +13,7 @@ from typing import Any, AsyncIterator, Dict, Optional
 try:
     from fastapi import FastAPI, HTTPException, Query, Depends, Request
     from fastapi.middleware.cors import CORSMiddleware
-    from fastapi.responses import JSONResponse
+    from fastapi.responses import JSONResponse, StreamingResponse
 except ImportError:
     raise ImportError(
         "FastAPI is required for the AWF API. "
@@ -26,16 +26,27 @@ from awf.api.models import (
     AgentResponse,
     AgentSearchQuery,
     AgentUpdate,
+    ApprovalActionRequest,
+    ApprovalActionResponse,
+    ApprovalRequestResponse,
     CapabilityResponse,
     ErrorResponse,
+    ExecutionStatusEnum,
+    GrafanaAlertResponse,
+    GrafanaAlertWebhook,
     HealthResponse,
     PolicyCreate,
     PolicyResponse,
+    StepResultResponse,
+    StepStatusEnum,
     TaskCreate,
     TaskResponse,
     TaskSubmitResponse,
     TrustScoreResponse,
     WorkflowCreate,
+    WorkflowEventResponse,
+    WorkflowEventTypeEnum,
+    WorkflowExecuteRequest,
     WorkflowExecutionResponse,
     WorkflowResponse,
 )
@@ -50,6 +61,20 @@ from awf.core.types import (
 from awf.registry.memory import InMemoryRegistry
 from awf.security.trust import TrustScoringEngine
 from awf.security.policy import PolicyEngine
+from awf.orchestration.types import (
+    WorkflowDefinition,
+    StepDefinition,
+    RetryPolicy,
+    FallbackPolicy,
+    WorkflowResult,
+    StepResult,
+    StepStatus,
+    ExecutionStatus,
+    WorkflowEvent,
+)
+from awf.orchestration.orchestrator import Orchestrator, OrchestratorConfig
+from awf.orchestration.registry import OrchestrationAdapterRegistry
+from awf.agents.watcher import WatcherAgent, WatcherConfig, GrafanaAlert
 
 
 # =============================================================================
@@ -66,6 +91,38 @@ class AppState:
         self.policy_engine = PolicyEngine()
         self.start_time = time.time()
         self.version = "1.0.0"
+        
+        # Workflow storage (in-memory for now)
+        self.workflows: Dict[str, WorkflowDefinition] = {}
+        
+        # Execution storage (in-memory for now)
+        self.executions: Dict[str, WorkflowResult] = {}
+        
+        # Event storage for SSE (per execution)
+        self.execution_events: Dict[str, list] = {}
+        
+        # Orchestrator setup
+        self.adapter_registry = OrchestrationAdapterRegistry()
+        self.orchestrator = Orchestrator(
+            adapter_registry=self.adapter_registry,
+            agent_registry=self.registry,
+            config=OrchestratorConfig(
+                default_timeout_ms=300000,  # 5 minutes
+                max_parallel_steps=10,
+                emit_events=True,
+            ),
+            event_callback=self._on_workflow_event,
+        )
+        
+        # Watcher Agent for autonomous observability
+        self.watcher = WatcherAgent(WatcherConfig())
+    
+    async def _on_workflow_event(self, event: WorkflowEvent) -> None:
+        """Handle workflow events for SSE streaming."""
+        execution_id = event.execution_id
+        if execution_id not in self.execution_events:
+            self.execution_events[execution_id] = []
+        self.execution_events[execution_id].append(event)
 
 
 _app_state: Optional[AppState] = None
@@ -575,11 +632,588 @@ def _register_routes(app: FastAPI) -> None:
             status_code=501,
             detail="Task retrieval not yet implemented"
         )
+    
+    # -------------------------------------------------------------------------
+    # Workflows
+    # -------------------------------------------------------------------------
+    
+    @app.post(
+        "/workflows",
+        response_model=WorkflowResponse,
+        status_code=201,
+        tags=["Workflows"],
+        summary="Create a workflow",
+    )
+    async def create_workflow(workflow: WorkflowCreate) -> WorkflowResponse:
+        """Create a new workflow definition."""
+        state = get_app_state()
+        
+        # Check if workflow already exists
+        if workflow.id in state.workflows:
+            raise HTTPException(
+                status_code=409,
+                detail=f"Workflow with ID '{workflow.id}' already exists"
+            )
+        
+        # Convert Pydantic model to WorkflowDefinition
+        steps = []
+        for step in workflow.steps:
+            retry = None
+            if step.retry:
+                retry = RetryPolicy(
+                    max_attempts=step.retry.max_attempts,
+                    backoff_ms=step.retry.backoff_ms,
+                    backoff_multiplier=step.retry.backoff_multiplier,
+                    max_backoff_ms=step.retry.max_backoff_ms,
+                )
+            
+            fallback = None
+            if step.fallback:
+                fallback = FallbackPolicy(
+                    skip=step.fallback.skip,
+                    static_value=step.fallback.static_value,
+                    agent_id=step.fallback.agent_id,
+                )
+            
+            steps.append(StepDefinition(
+                id=step.id,
+                agent_id=step.agent_id,
+                input_map=step.input_map,
+                depends_on=step.depends_on,
+                condition=step.condition,
+                timeout_ms=step.timeout_ms,
+                retry=retry,
+                fallback=fallback,
+                metadata=step.metadata,
+            ))
+        
+        workflow_def = WorkflowDefinition(
+            id=workflow.id,
+            name=workflow.name,
+            description=workflow.description,
+            steps=steps,
+            input_schema=workflow.input_schema,
+            timeout_ms=workflow.timeout_ms,
+        )
+        
+        # Store workflow
+        state.workflows[workflow.id] = workflow_def
+        
+        return _workflow_to_response(workflow_def)
+    
+    @app.get(
+        "/workflows/{workflow_id}",
+        response_model=WorkflowResponse,
+        tags=["Workflows"],
+        summary="Get a workflow",
+    )
+    async def get_workflow(workflow_id: str) -> WorkflowResponse:
+        """Retrieve a workflow definition by ID."""
+        state = get_app_state()
+        
+        if workflow_id not in state.workflows:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Workflow with ID '{workflow_id}' not found"
+            )
+        
+        return _workflow_to_response(state.workflows[workflow_id])
+    
+    @app.get(
+        "/workflows",
+        response_model=list[WorkflowResponse],
+        tags=["Workflows"],
+        summary="List workflows",
+    )
+    async def list_workflows() -> list[WorkflowResponse]:
+        """List all workflow definitions."""
+        state = get_app_state()
+        return [_workflow_to_response(w) for w in state.workflows.values()]
+    
+    @app.delete(
+        "/workflows/{workflow_id}",
+        status_code=204,
+        tags=["Workflows"],
+        summary="Delete a workflow",
+    )
+    async def delete_workflow(workflow_id: str) -> None:
+        """Delete a workflow definition."""
+        state = get_app_state()
+        
+        if workflow_id not in state.workflows:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Workflow with ID '{workflow_id}' not found"
+            )
+        
+        del state.workflows[workflow_id]
+    
+    # -------------------------------------------------------------------------
+    # Workflow Execution
+    # -------------------------------------------------------------------------
+    
+    @app.post(
+        "/workflows/{workflow_id}/execute",
+        response_model=WorkflowExecutionResponse,
+        status_code=202,
+        tags=["Executions"],
+        summary="Execute a workflow",
+    )
+    async def execute_workflow(
+        workflow_id: str,
+        request: WorkflowExecuteRequest,
+    ) -> WorkflowExecutionResponse:
+        """Start executing a workflow."""
+        state = get_app_state()
+        
+        # Get workflow
+        if workflow_id not in state.workflows:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Workflow with ID '{workflow_id}' not found"
+            )
+        
+        workflow = state.workflows[workflow_id]
+        
+        # Execute workflow
+        try:
+            result = await state.orchestrator.execute(
+                workflow=workflow,
+                input_data=request.input,
+                context=request.context,
+                timeout_ms=request.timeout_ms,
+                trace_id=request.trace_id,
+                correlation_id=request.correlation_id,
+            )
+            
+            # Store result
+            state.executions[result.execution_id] = result
+            
+            return _result_to_response(result)
+            
+        except Exception as e:
+            raise HTTPException(
+                status_code=500,
+                detail=f"Workflow execution failed: {str(e)}"
+            )
+    
+    @app.get(
+        "/executions/{execution_id}",
+        response_model=WorkflowExecutionResponse,
+        tags=["Executions"],
+        summary="Get execution status",
+    )
+    async def get_execution(execution_id: str) -> WorkflowExecutionResponse:
+        """Get the status of a workflow execution."""
+        state = get_app_state()
+        
+        if execution_id not in state.executions:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Execution with ID '{execution_id}' not found"
+            )
+        
+        return _result_to_response(state.executions[execution_id])
+    
+    @app.post(
+        "/executions/{execution_id}/cancel",
+        response_model=WorkflowExecutionResponse,
+        tags=["Executions"],
+        summary="Cancel an execution",
+    )
+    async def cancel_execution(execution_id: str) -> WorkflowExecutionResponse:
+        """Cancel a running workflow execution."""
+        state = get_app_state()
+        
+        # Try to cancel
+        cancelled = await state.orchestrator.cancel(execution_id)
+        
+        if not cancelled:
+            # Check if execution exists but is already completed
+            if execution_id in state.executions:
+                result = state.executions[execution_id]
+                if result.status in (ExecutionStatus.COMPLETED, ExecutionStatus.FAILED, ExecutionStatus.CANCELLED):
+                    return _result_to_response(result)
+            
+            raise HTTPException(
+                status_code=404,
+                detail=f"Execution with ID '{execution_id}' not found or already completed"
+            )
+        
+        # Wait a moment for cancellation to propagate
+        import asyncio
+        await asyncio.sleep(0.1)
+        
+        if execution_id in state.executions:
+            return _result_to_response(state.executions[execution_id])
+        
+        # Return minimal response if not yet stored
+        return WorkflowExecutionResponse(
+            execution_id=execution_id,
+            workflow_id="unknown",
+            status=ExecutionStatusEnum.CANCELLED,
+            input={},
+        )
+    
+    @app.get(
+        "/executions",
+        response_model=list[WorkflowExecutionResponse],
+        tags=["Executions"],
+        summary="List executions",
+    )
+    async def list_executions(
+        workflow_id: Optional[str] = Query(None, description="Filter by workflow ID"),
+        status: Optional[str] = Query(None, description="Filter by status"),
+    ) -> list[WorkflowExecutionResponse]:
+        """List workflow executions with optional filtering."""
+        state = get_app_state()
+        
+        results = []
+        for result in state.executions.values():
+            if workflow_id and result.workflow_id != workflow_id:
+                continue
+            if status and result.status.value != status:
+                continue
+            results.append(_result_to_response(result))
+        
+        return results
+    
+    @app.get(
+        "/executions/{execution_id}/events",
+        tags=["Executions"],
+        summary="Stream execution events (SSE)",
+    )
+    async def stream_execution_events(execution_id: str) -> StreamingResponse:
+        """
+        Stream workflow execution events using Server-Sent Events (SSE).
+        
+        Events are formatted as:
+        ```
+        event: workflow.started
+        data: {"executionId": "...", "workflowId": "...", ...}
+        
+        event: step.completed
+        data: {"stepId": "...", ...}
+        ```
+        """
+        import asyncio
+        import json
+        
+        state = get_app_state()
+        
+        async def event_generator():
+            """Generate SSE events."""
+            # Track which events we've sent
+            sent_count = 0
+            max_wait_iterations = 600  # 60 seconds max wait
+            iterations = 0
+            
+            while iterations < max_wait_iterations:
+                # Get events for this execution
+                events = state.execution_events.get(execution_id, [])
+                
+                # Send any new events
+                while sent_count < len(events):
+                    event = events[sent_count]
+                    event_data = event.to_dict()
+                    event_type = event.type.value
+                    
+                    yield f"event: {event_type}\n"
+                    yield f"data: {json.dumps(event_data)}\n\n"
+                    
+                    sent_count += 1
+                    
+                    # Check if this is a terminal event
+                    if event_type in (
+                        "workflow.completed",
+                        "workflow.failed",
+                        "workflow.cancelled",
+                    ):
+                        return
+                
+                # Wait a bit before checking for more events
+                await asyncio.sleep(0.1)
+                iterations += 1
+            
+            # Timeout - send a timeout event
+            yield f"event: timeout\n"
+            yield f"data: {json.dumps({'message': 'Event stream timed out'})}\n\n"
+        
+        return StreamingResponse(
+            event_generator(),
+            media_type="text/event-stream",
+            headers={
+                "Cache-Control": "no-cache",
+                "Connection": "keep-alive",
+                "X-Accel-Buffering": "no",
+            },
+        )
+    
+    # -------------------------------------------------------------------------
+    # Watcher Agent Webhooks
+    # -------------------------------------------------------------------------
+    
+    @app.post(
+        "/webhooks/grafana-alerts",
+        response_model=GrafanaAlertResponse,
+        tags=["Watcher"],
+        summary="Receive Grafana alerts",
+    )
+    async def receive_grafana_alert(
+        payload: GrafanaAlertWebhook,
+    ) -> GrafanaAlertResponse:
+        """
+        Receive alerts from Grafana Alerting and route to the Watcher Agent.
+        
+        The Watcher Agent will:
+        1. Investigate the alert by querying metrics, logs, and traces
+        2. Determine the best remediation action
+        3. Execute low-risk actions automatically
+        4. Request human approval for high-risk actions
+        
+        Configure Grafana to send webhooks to this endpoint:
+        ```
+        POST http://<awf-host>:8000/webhooks/grafana-alerts
+        ```
+        """
+        state = get_app_state()
+        
+        # Convert webhook payload to GrafanaAlert
+        alert = GrafanaAlert.from_webhook(payload.model_dump())
+        
+        # Handle via Watcher Agent
+        result = await state.watcher.handle_alert(alert)
+        
+        return GrafanaAlertResponse(
+            status=result.get("status", "unknown"),
+            alert_id=alert.id,
+            reason=result.get("reason"),
+            approval_id=result.get("approval_id"),
+            action=result.get("action"),
+            result=result.get("result"),
+            investigation=result.get("investigation"),
+        )
+    
+    @app.get(
+        "/watcher/approvals",
+        response_model=list[ApprovalRequestResponse],
+        tags=["Watcher"],
+        summary="List pending approvals",
+    )
+    async def list_pending_approvals() -> list[ApprovalRequestResponse]:
+        """
+        List all pending HITL (Human-in-the-Loop) approval requests.
+        
+        High-risk remediation actions require human approval before execution.
+        Use this endpoint to view pending requests, then approve or reject them.
+        """
+        state = get_app_state()
+        pending = state.watcher.get_pending_approvals()
+        
+        responses = []
+        for req in pending:
+            responses.append(ApprovalRequestResponse(
+                id=req["id"],
+                action=req["action"],
+                investigation=req["investigation"],
+                requested_at=req["requested_at"],
+                expires_at=req["expires_at"],
+                status=req["status"],
+                approved_by=req.get("approved_by"),
+                rejected_by=req.get("rejected_by"),
+                rejection_reason=req.get("rejection_reason"),
+            ))
+        
+        return responses
+    
+    @app.get(
+        "/watcher/approvals/{approval_id}",
+        response_model=ApprovalRequestResponse,
+        tags=["Watcher"],
+        summary="Get approval request details",
+    )
+    async def get_approval_request(approval_id: str) -> ApprovalRequestResponse:
+        """Get details of a specific approval request."""
+        state = get_app_state()
+        
+        # Find the request
+        request = state.watcher._pending_approvals.get(approval_id)
+        if not request:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Approval request '{approval_id}' not found"
+            )
+        
+        return ApprovalRequestResponse(
+            id=request.id,
+            action={
+                "script_id": request.action.script_id,
+                "name": request.action.name,
+                "description": request.action.description,
+                "risk_level": request.action.risk_level.value,
+                "parameters": request.action.parameters,
+            },
+            investigation=request.investigation.to_dict(),
+            requested_at=request.requested_at,
+            expires_at=request.expires_at,
+            status=request.status,
+            approved_by=request.approved_by,
+            rejected_by=request.rejected_by,
+            rejection_reason=request.rejection_reason,
+        )
+    
+    @app.post(
+        "/watcher/approvals/{approval_id}/approve",
+        response_model=ApprovalActionResponse,
+        tags=["Watcher"],
+        summary="Approve a remediation action",
+    )
+    async def approve_action(
+        approval_id: str,
+        request: ApprovalActionRequest,
+    ) -> ApprovalActionResponse:
+        """
+        Approve a pending remediation action.
+        
+        Once approved, the Watcher Agent will execute the action immediately.
+        The execution result will be returned in the response.
+        """
+        state = get_app_state()
+        
+        result = await state.watcher.approve_action(
+            approval_id=approval_id,
+            approver=request.user,
+        )
+        
+        if "error" in result:
+            raise HTTPException(
+                status_code=400 if result["error"] != "Approval request not found" else 404,
+                detail=result["error"]
+            )
+        
+        return ApprovalActionResponse(
+            status=result.get("status", "executed"),
+            approval_id=approval_id,
+            approved_by=result.get("approved_by"),
+            result=result.get("result"),
+        )
+    
+    @app.post(
+        "/watcher/approvals/{approval_id}/reject",
+        response_model=ApprovalActionResponse,
+        tags=["Watcher"],
+        summary="Reject a remediation action",
+    )
+    async def reject_action(
+        approval_id: str,
+        request: ApprovalActionRequest,
+    ) -> ApprovalActionResponse:
+        """
+        Reject a pending remediation action.
+        
+        A reason must be provided explaining why the action was rejected.
+        The action will not be executed.
+        """
+        state = get_app_state()
+        
+        if not request.reason:
+            raise HTTPException(
+                status_code=400,
+                detail="Rejection reason is required"
+            )
+        
+        result = await state.watcher.reject_action(
+            approval_id=approval_id,
+            rejector=request.user,
+            reason=request.reason,
+        )
+        
+        if "error" in result:
+            raise HTTPException(
+                status_code=400 if result["error"] != "Approval request not found" else 404,
+                detail=result["error"]
+            )
+        
+        return ApprovalActionResponse(
+            status=result.get("status", "rejected"),
+            approval_id=approval_id,
+            rejected_by=result.get("rejected_by"),
+            reason=result.get("reason"),
+        )
+    
+    @app.get(
+        "/watcher/health",
+        tags=["Watcher"],
+        summary="Watcher Agent health check",
+    )
+    async def watcher_health() -> Dict[str, Any]:
+        """Check the health and status of the Watcher Agent."""
+        state = get_app_state()
+        
+        return {
+            "status": "active" if state.watcher._started else "stopped",
+            "mcp_endpoint": state.watcher.config.mcp_endpoint,
+            "auto_remediation_enabled": state.watcher.config.auto_remediation_enabled,
+            "dry_run_mode": state.watcher.config.dry_run_mode,
+            "pending_approvals": len(state.watcher.get_pending_approvals()),
+            "registered_scripts": list(state.watcher._scripts.keys()),
+        }
 
 
 # =============================================================================
 # Helpers
 # =============================================================================
+
+
+def _workflow_to_response(workflow: WorkflowDefinition) -> WorkflowResponse:
+    """Convert a WorkflowDefinition to a WorkflowResponse."""
+    return WorkflowResponse(
+        id=workflow.id,
+        name=workflow.name,
+        description=workflow.description,
+        version=workflow.version,
+        steps=[step.to_dict() for step in workflow.steps],
+        input_schema=workflow.input_schema,
+        output_schema=None,  # Not stored in WorkflowDefinition
+        timeout_ms=workflow.timeout_ms,
+        max_retries=0,
+        created_at=workflow.created_at,
+    )
+
+
+def _result_to_response(result: WorkflowResult) -> WorkflowExecutionResponse:
+    """Convert a WorkflowResult to a WorkflowExecutionResponse."""
+    step_results = {}
+    for step_id, step_result in result.step_results.items():
+        step_results[step_id] = StepResultResponse(
+            step_id=step_result.step_id,
+            status=StepStatusEnum(step_result.status.value),
+            output=step_result.output,
+            error=step_result.error,
+            error_category=step_result.error_category.value if step_result.error_category else None,
+            started_at=step_result.started_at,
+            completed_at=step_result.completed_at,
+            execution_time_ms=step_result.execution_time_ms,
+            retry_count=step_result.retry_count,
+            used_fallback=step_result.used_fallback,
+            metadata=step_result.metadata,
+        )
+    
+    return WorkflowExecutionResponse(
+        execution_id=result.execution_id,
+        workflow_id=result.workflow_id,
+        status=ExecutionStatusEnum(result.status.value),
+        input=result.input,
+        output=result.output,
+        error=result.error,
+        step_results=step_results,
+        started_at=result.started_at,
+        completed_at=result.completed_at,
+        total_execution_time_ms=result.total_execution_time_ms,
+        total_retry_count=result.total_retry_count,
+        total_fallback_count=result.total_fallback_count,
+        trace_id=result.metadata.get("trace_id") if result.metadata else None,
+    )
 
 
 def _manifest_to_response(manifest: AgentManifest) -> AgentResponse:

@@ -1,0 +1,120 @@
+// AWF Grafana Alloy Configuration
+// OpenTelemetry Collector for metrics, traces, and logs
+//
+// Receives OTLP on:
+//   - gRPC: 4317
+//   - HTTP: 4318
+//
+// Routes to:
+//   - Metrics -> Mimir (Prometheus remote write)
+//   - Traces -> Tempo (OTLP)
+//   - Logs -> Loki (native)
+
+// ============================================
+// OTLP Receiver - Accepts telemetry from AWF
+// ============================================
+otelcol.receiver.otlp "awf" {
+  grpc {
+    endpoint = "0.0.0.0:4317"
+  }
+  http {
+    endpoint = "0.0.0.0:4318"
+  }
+
+  output {
+    metrics = [otelcol.processor.batch.default.input]
+    traces  = [otelcol.processor.batch.default.input]
+    logs    = [otelcol.processor.batch.default.input]
+  }
+}
+
+// ============================================
+// Batch Processor - Efficient batching
+// ============================================
+otelcol.processor.batch "default" {
+  timeout = "5s"
+  send_batch_size = 1000
+  send_batch_max_size = 2000
+
+  output {
+    metrics = [otelcol.processor.attributes.awf.input]
+    traces  = [otelcol.processor.attributes.awf.input]
+    logs    = [otelcol.processor.attributes.awf.input]
+  }
+}
+
+// ============================================
+// Attributes Processor - Add AWF metadata
+// ============================================
+otelcol.processor.attributes "awf" {
+  action {
+    key = "service.namespace"
+    value = "awf"
+    action = "upsert"
+  }
+  action {
+    key = "deployment.environment"
+    value = "development"
+    action = "upsert"
+  }
+
+  output {
+    metrics = [otelcol.exporter.prometheus.mimir.input]
+    traces  = [otelcol.exporter.otlp.tempo.input]
+    logs    = [otelcol.exporter.loki.default.input]
+  }
+}
+
+// ============================================
+// Prometheus Exporter -> Mimir
+// ============================================
+otelcol.exporter.prometheus "mimir" {
+  forward_to = [prometheus.remote_write.mimir.receiver]
+}
+
+prometheus.remote_write "mimir" {
+  endpoint {
+    url = "http://mimir:9009/api/v1/push"
+    
+    // Retry on failure
+    queue_config {
+      capacity = 10000
+      max_shards = 50
+      max_samples_per_send = 2000
+    }
+  }
+}
+
+// ============================================
+// OTLP Exporter -> Tempo (Traces)
+// ============================================
+otelcol.exporter.otlp "tempo" {
+  client {
+    endpoint = "tempo:4317"
+    tls {
+      insecure = true
+    }
+  }
+}
+
+// ============================================
+// Loki Exporter -> Loki (Logs)
+// ============================================
+otelcol.exporter.loki "default" {
+  forward_to = [loki.write.default.receiver]
+}
+
+loki.write "default" {
+  endpoint {
+    url = "http://loki:3100/loki/api/v1/push"
+  }
+}
+
+// ============================================
+// Self-monitoring
+// ============================================
+prometheus.scrape "alloy_self" {
+  targets = [{"__address__" = "localhost:12345"}]
+  forward_to = [prometheus.remote_write.mimir.receiver]
+  job_name = "alloy"
+}

@@ -1,0 +1,17 @@
+# Grafana Dashboard Provisioning for AWF
+# Auto-loads dashboards from /var/lib/grafana/dashboards
+
+apiVersion: 1
+
+providers:
+  - name: AWF Dashboards
+    orgId: 1
+    folder: AWF
+    folderUid: awf
+    type: file
+    disableDeletion: false
+    editable: true
+    updateIntervalSeconds: 30
+    options:
+      path: /var/lib/grafana/dashboards
+      foldersFromFilesStructure: false

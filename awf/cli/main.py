@@ -24,10 +24,12 @@ console = Console()
 from awf.cli.agents import agents_app
 from awf.cli.tasks import tasks_app
 from awf.cli.server import server_app
+from awf.cli.workflows import workflows_app
 
 app.add_typer(agents_app, name="agents", help="Manage AI agents")
 app.add_typer(tasks_app, name="tasks", help="Manage tasks")
 app.add_typer(server_app, name="server", help="API server management")
+app.add_typer(workflows_app, name="workflows", help="Manage and run workflows")
 
 
 @app.command()

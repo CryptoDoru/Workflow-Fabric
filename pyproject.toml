@@ -83,11 +83,22 @@ providers = [
 cli = [
     "typer[all]>=0.9.0",
     "rich>=13.7.0",
+    "httpx>=0.26.0",
+    "pyyaml>=6.0.0",
+]
+
+# OpenTelemetry for observability
+otel = [
+    "opentelemetry-api>=1.22.0",
+    "opentelemetry-sdk>=1.22.0",
+    "opentelemetry-exporter-otlp>=1.22.0",
+    "opentelemetry-instrumentation-fastapi>=0.43b0",
+    "opentelemetry-instrumentation-httpx>=0.43b0",
 ]
 
 # Everything
 all = [
-    "ai-workflow-fabric[langgraph,crewai,autogen,api,providers,cli]",
+    "ai-workflow-fabric[langgraph,crewai,autogen,api,providers,cli,otel]",
 ]
 
 # Development

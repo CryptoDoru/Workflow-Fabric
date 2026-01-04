@@ -1,0 +1,94 @@
+# Mimir Configuration for AWF Observability
+# Single-node mode for local development
+#
+# Documentation: https://grafana.com/docs/mimir/latest/configure/
+# Compatible with Mimir 2.14.x
+
+# Target components to run in single-node mode
+target: all
+
+# Disable multi-tenancy for local dev
+multitenancy_enabled: false
+
+# Server configuration
+server:
+  http_listen_port: 9009
+  grpc_listen_port: 9095
+  log_level: info
+
+# Common storage configuration
+common:
+  storage:
+    backend: filesystem
+    filesystem:
+      dir: /data/mimir
+
+# Ingester configuration
+ingester:
+  ring:
+    instance_addr: 127.0.0.1
+    kvstore:
+      store: inmemory
+    replication_factor: 1
+
+# Blocks storage configuration
+blocks_storage:
+  backend: filesystem
+  filesystem:
+    dir: /data/mimir/blocks
+  bucket_store:
+    sync_dir: /data/mimir/bucket-sync
+  tsdb:
+    dir: /data/mimir/tsdb
+
+# Compactor configuration
+compactor:
+  data_dir: /data/mimir/compactor
+  sharding_ring:
+    kvstore:
+      store: inmemory
+
+# Store-gateway configuration
+store_gateway:
+  sharding_ring:
+    replication_factor: 1
+    kvstore:
+      store: inmemory
+
+# Distributor configuration
+distributor:
+  ring:
+    instance_addr: 127.0.0.1
+    kvstore:
+      store: inmemory
+
+# Query configuration
+querier:
+  query_ingesters_within: 3h
+
+# Frontend configuration
+frontend:
+  scheduler_address: ""
+
+# Ruler configuration (for recording rules)
+ruler:
+  enable_api: true
+  rule_path: /data/mimir/rules-temp
+  storage:
+    backend: filesystem
+    filesystem:
+      dir: /data/mimir/rules
+
+# Limits configuration
+limits:
+  # Increase cardinality limits for AWF metrics
+  max_global_series_per_user: 500000
+  max_global_series_per_metric: 50000
+  
+  # Ingestion limits
+  ingestion_rate: 100000
+  ingestion_burst_size: 200000
+  
+  # Query limits
+  max_query_lookback: 720h  # 30 days
+  max_query_parallelism: 32

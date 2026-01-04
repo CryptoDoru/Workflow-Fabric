@@ -1,0 +1,161 @@
+# AWF Grafana Observability Stack
+# LGTM: Loki, Grafana, Tempo, Mimir
+#
+# Usage:
+#   docker compose up -d
+#   Open http://localhost:3000 (admin/admin)
+#
+# Ports:
+#   - 3000: Grafana UI
+#   - 4317: OTLP gRPC (for AWF telemetry)
+#   - 4318: OTLP HTTP (for AWF telemetry)
+#   - 9009: Mimir (metrics)
+#   - 3100: Loki (logs)
+#   - 3200: Tempo (traces)
+
+version: '3.8'
+
+networks:
+  awf-observability:
+    driver: bridge
+
+volumes:
+  grafana-data:
+  mimir-data:
+  loki-data:
+  tempo-data:
+
+services:
+  # ===========================================
+  # Grafana - Visualization & Dashboards
+  # ===========================================
+  grafana:
+    image: grafana/grafana-oss:11.4.0
+    container_name: awf-grafana
+    ports:
+      - "3000:3000"
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - ./provisioning:/etc/grafana/provisioning:ro
+      - ./dashboards:/var/lib/grafana/dashboards:ro
+    environment:
+      # Admin credentials
+      - GF_SECURITY_ADMIN_USER=admin
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+      
+      # Plugins
+      - GF_INSTALL_PLUGINS=grafana-llm-app
+      
+      # Paths
+      - GF_PATHS_PROVISIONING=/etc/grafana/provisioning
+      
+      # Feature toggles
+      - GF_FEATURE_TOGGLES_ENABLE=traceToMetrics,correlations
+      
+      # Anonymous access for local dev
+      - GF_AUTH_ANONYMOUS_ENABLED=true
+      - GF_AUTH_ANONYMOUS_ORG_ROLE=Viewer
+    networks:
+      - awf-observability
+    depends_on:
+      - mimir
+      - loki
+      - tempo
+    healthcheck:
+      test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://localhost:3000/api/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ===========================================
+  # Grafana Alloy - OpenTelemetry Collector
+  # ===========================================
+  alloy:
+    image: grafana/alloy:v1.5.1
+    container_name: awf-alloy
+    ports:
+      - "4317:4317"   # OTLP gRPC
+      - "4318:4318"   # OTLP HTTP
+      - "12345:12345" # Alloy UI
+    volumes:
+      - ./config/alloy-config.alloy:/etc/alloy/config.alloy:ro
+    command:
+      - run
+      - --server.http.listen-addr=0.0.0.0:12345
+      - --stability.level=generally-available
+      - /etc/alloy/config.alloy
+    networks:
+      - awf-observability
+    depends_on:
+      - mimir
+      - loki
+      - tempo
+    healthcheck:
+      test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://localhost:12345/-/ready || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ===========================================
+  # Mimir - Metrics Storage (Prometheus-compatible)
+  # ===========================================
+  mimir:
+    image: grafana/mimir:2.14.0
+    container_name: awf-mimir
+    ports:
+      - "9009:9009"
+    volumes:
+      - mimir-data:/data
+      - ./config/mimir-config.yaml:/etc/mimir/config.yaml:ro
+    command:
+      - -config.file=/etc/mimir/config.yaml
+    networks:
+      - awf-observability
+    healthcheck:
+      test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://localhost:9009/ready || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ===========================================
+  # Loki - Log Storage
+  # ===========================================
+  loki:
+    image: grafana/loki:3.2.0
+    container_name: awf-loki
+    ports:
+      - "3100:3100"
+    volumes:
+      - loki-data:/loki
+      - ./config/loki-config.yaml:/etc/loki/config.yaml:ro
+    command:
+      - -config.file=/etc/loki/config.yaml
+    networks:
+      - awf-observability
+    healthcheck:
+      test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://localhost:3100/ready || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ===========================================
+  # Tempo - Trace Storage
+  # ===========================================
+  tempo:
+    image: grafana/tempo:2.6.0
+    container_name: awf-tempo
+    ports:
+      - "3200:3200"   # Tempo UI
+      - "4320:4317"   # OTLP gRPC (internal, different port to avoid conflict)
+    volumes:
+      - tempo-data:/tmp/tempo
+      - ./config/tempo-config.yaml:/etc/tempo/config.yaml:ro
+    command:
+      - -config.file=/etc/tempo/config.yaml
+    networks:
+      - awf-observability
+    healthcheck:
+      test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://localhost:3200/ready || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5

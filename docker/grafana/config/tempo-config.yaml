@@ -1,0 +1,83 @@
+# Tempo Configuration for AWF Observability
+# Single-node mode for local development
+#
+# Documentation: https://grafana.com/docs/tempo/latest/configuration/
+# Compatible with Tempo 2.6.x
+
+server:
+  http_listen_port: 3200
+  grpc_listen_port: 9095
+  log_level: info
+
+distributor:
+  receivers:
+    otlp:
+      protocols:
+        grpc:
+          endpoint: 0.0.0.0:4317
+        http:
+          endpoint: 0.0.0.0:4318
+
+ingester:
+  max_block_duration: 5m
+  lifecycler:
+    ring:
+      kvstore:
+        store: inmemory
+      replication_factor: 1
+
+compactor:
+  compaction:
+    block_retention: 48h
+  ring:
+    kvstore:
+      store: inmemory
+
+metrics_generator:
+  registry:
+    external_labels:
+      source: tempo
+      cluster: awf-local
+  storage:
+    path: /var/tempo/generator/wal
+    remote_write:
+      - url: http://mimir:9009/api/v1/push
+        send_exemplars: true
+  processor:
+    service_graphs:
+      dimensions:
+        - service.name
+        - operation
+    span_metrics:
+      dimensions:
+        - service.name
+        - operation
+
+storage:
+  trace:
+    backend: local
+    wal:
+      path: /var/tempo/wal
+    local:
+      path: /var/tempo/blocks
+
+querier:
+  search:
+    external_hedge_requests_at: 8s
+    external_hedge_requests_up_to: 2
+
+query_frontend:
+  search:
+    max_duration: 0
+
+overrides:
+  defaults:
+    metrics_generator:
+      processors:
+        - service-graphs
+        - span-metrics
+    ingestion:
+      rate_limit_bytes: 15000000
+      burst_size_bytes: 20000000
+    global:
+      max_traces_per_user: 100000
