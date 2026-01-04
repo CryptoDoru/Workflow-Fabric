@@ -7,143 +7,391 @@
 [![PyPI](https://img.shields.io/pypi/v/ai-workflow-fabric.svg)](https://pypi.org/project/ai-workflow-fabric/)
 [![Tests](https://github.com/CryptoDoru/Workflow-Fabric/actions/workflows/ci.yml/badge.svg)](https://github.com/CryptoDoru/Workflow-Fabric/actions)
 [![codecov](https://codecov.io/gh/CryptoDoru/Workflow-Fabric/branch/main/graph/badge.svg)](https://codecov.io/gh/CryptoDoru/Workflow-Fabric)
-[![ASP Version](https://img.shields.io/badge/ASP-v1.0--draft-green.svg)](spec/asp-specification.md)
-
-<p align="center">
-  <strong>Orchestrate LangGraph, CrewAI, AutoGen, and OpenAI agents with unified observability, trust scoring, and production reliability.</strong>
-</p>
 
 ---
 
-## Why AWF?
+## What is AWF?
 
-The AI agent ecosystem is fragmented. Each framework has its own API, execution model, and tooling:
+**AI Workflow Fabric (AWF)** is an open-source middleware that lets you **orchestrate AI agents from any framework** (LangGraph, CrewAI, AutoGen, OpenAI) through a single, unified platform.
 
-| Framework | Mental Model | Strength |
-|-----------|--------------|----------|
-| **LangGraph** | Graphs & State | Complex workflows |
-| **CrewAI** | Roles & Teams | Agent collaboration |
-| **AutoGen** | Conversations | Multi-agent chat |
-| **OpenAI Assistants** | Threads | Simple deployment |
+Think of it as **Kubernetes for AI Agents**: just as Kubernetes manages containers regardless of where they came from, AWF manages AI agents regardless of which framework created them.
 
-**AWF bridges them all** with:
+### What Problems Does It Solve?
 
-- **Unified Registry**: Discover agents from any framework
-- **Multi-Framework Orchestration**: Mix LangGraph + CrewAI + AutoGen in one workflow
-- **Production Reliability**: Retries, fallbacks, timeouts, circuit breakers
-- **Trust & Security**: Trust scoring, sandboxed execution, policy enforcement
-- **Full Observability**: Grafana dashboards, distributed tracing, cost tracking
-- **Auto-Remediation**: Watcher Agent monitors and fixes issues automatically
+| Problem | How AWF Solves It |
+|---------|-------------------|
+| **Framework Lock-in** | Use LangGraph for complex workflows, CrewAI for team collaboration, and AutoGen for conversations—all in the same pipeline |
+| **No Visibility** | Full observability with Grafana dashboards showing metrics, logs, and traces for every agent execution |
+| **Unreliable in Production** | Built-in retries, fallbacks, timeouts, and circuit breakers for production-grade reliability |
+| **Security Concerns** | Trust scoring system evaluates every agent before execution; untrusted agents run in sandboxes |
+| **Manual Incident Response** | Watcher Agent automatically detects issues and remediates them (restart agents, retry workflows, adjust timeouts) |
+| **Scattered Agent Discovery** | Central registry to discover, search, and manage all your agents in one place |
 
 ---
 
-## Quick Start
+## Who Is This For?
 
-### Installation
+| User | Use Case |
+|------|----------|
+| **AI/ML Teams** | Manage agents from multiple frameworks without custom glue code |
+| **Platform Engineers** | Get enterprise observability and reliability for AI workloads |
+| **Startups** | Ship production-ready multi-agent products faster |
+| **Enterprises** | Security, compliance, and governance for AI agents at scale |
 
-```bash
-# Basic installation
-pip install ai-workflow-fabric
+---
 
-# With API server
-pip install ai-workflow-fabric[api]
+## Quick Start (5 Minutes)
 
-# With observability (OpenTelemetry + Grafana)
-pip install ai-workflow-fabric[otel]
-
-# With everything
-pip install ai-workflow-fabric[all]
-```
-
-### 5-Minute Demo
-
-```python
-import asyncio
-from awf.core.types import AgentManifest, Capability, CapabilityType, AgentStatus
-from awf.registry.memory import InMemoryRegistry
-from awf.security.trust import TrustScoringEngine
-
-async def main():
-    # 1. Create registry and trust engine
-    registry = InMemoryRegistry()
-    trust_engine = TrustScoringEngine()
-    
-    # 2. Define an agent
-    agent = AgentManifest(
-        id="research-agent",
-        name="Research Agent",
-        version="1.0.0",
-        framework="langgraph",
-        capabilities=[
-            Capability(name="web_search", type=CapabilityType.TOOL),
-            Capability(name="summarize", type=CapabilityType.REASONING),
-        ],
-        status=AgentStatus.ACTIVE,
-    )
-    
-    # 3. Compute trust score
-    trust = await trust_engine.compute_score(agent)
-    print(f"Trust: {trust.score:.2f} -> Sandbox: {trust.sandbox_tier.value}")
-    
-    # 4. Register and discover
-    await registry.register(agent)
-    found = await registry.search(capabilities=["web_search"])
-    print(f"Found {len(found)} agents with web_search capability")
-
-asyncio.run(main())
-```
-
-### REST API
+### 1. Install
 
 ```bash
-# Start the API server
 pip install ai-workflow-fabric[api]
+```
+
+### 2. Start the API Server
+
+```bash
 uvicorn awf.api.app:app --reload
+```
 
-# Register an agent
+Open http://localhost:8000/docs to see the interactive API documentation.
+
+### 3. Register Your First Agent
+
+```bash
 curl -X POST http://localhost:8000/agents \
   -H "Content-Type: application/json" \
   -d '{
-    "id": "my-agent",
-    "name": "My Agent", 
+    "id": "my-search-agent",
+    "name": "Web Search Agent",
     "version": "1.0.0",
     "framework": "langgraph",
-    "capabilities": [{"name": "search", "type": "tool"}]
-  }'
-
-# Check trust score
-curl http://localhost:8000/agents/my-agent/trust
-
-# Create a workflow
-curl -X POST http://localhost:8000/workflows \
-  -H "Content-Type: application/json" \
-  -d '{
-    "id": "research-flow",
-    "name": "Research Pipeline",
-    "steps": [
-      {"id": "search", "agent_id": "searcher"},
-      {"id": "summarize", "agent_id": "summarizer", "depends_on": ["search"]}
+    "capabilities": [
+      {"name": "web_search", "type": "tool"},
+      {"name": "summarize", "type": "reasoning"}
     ]
   }'
 ```
 
-### CLI
+### 4. Check Its Trust Score
 
 ```bash
-# Install with CLI support
+curl http://localhost:8000/agents/my-search-agent/trust
+```
+
+Response:
+```json
+{
+  "score": 0.54,
+  "sandbox_tier": "gvisor_strict",
+  "factors": {
+    "publisher_trust": 0.50,
+    "audit_status": 0.30,
+    "community_trust": 0.50,
+    "permission_analysis": 0.90,
+    "historical_behavior": 0.70
+  }
+}
+```
+
+### 5. Create a Multi-Agent Workflow
+
+```bash
+curl -X POST http://localhost:8000/workflows \
+  -H "Content-Type: application/json" \
+  -d '{
+    "id": "research-pipeline",
+    "name": "Research Pipeline",
+    "steps": [
+      {"id": "search", "agentId": "my-search-agent", "timeoutMs": 30000},
+      {"id": "analyze", "agentId": "analysis-agent", "dependsOn": ["search"]},
+      {"id": "report", "agentId": "report-agent", "dependsOn": ["analyze"]}
+    ]
+  }'
+```
+
+### 6. Execute the Workflow
+
+```bash
+curl -X POST http://localhost:8000/workflows/research-pipeline/execute \
+  -H "Content-Type: application/json" \
+  -d '{"input": {"query": "AI safety best practices"}}'
+```
+
+---
+
+## Common Use Cases
+
+### Research Pipeline
+Chain agents to search → analyze → summarize information:
+
+```python
+from awf.orchestration import WorkflowDefinition, StepDefinition
+
+workflow = WorkflowDefinition(
+    id="research-pipeline",
+    name="Research Pipeline",
+    steps=[
+        StepDefinition(id="search", agent_id="web-search-agent"),
+        StepDefinition(id="analyze", agent_id="analysis-agent", depends_on=["search"]),
+        StepDefinition(id="summarize", agent_id="summarizer-agent", depends_on=["analyze"]),
+    ]
+)
+```
+
+### Code Review Pipeline
+Scan code for security issues and quality problems:
+
+```python
+workflow = WorkflowDefinition(
+    id="code-review",
+    name="Code Review",
+    steps=[
+        StepDefinition(id="parse", agent_id="code-parser"),
+        StepDefinition(id="security", agent_id="security-scanner", depends_on=["parse"]),
+        StepDefinition(id="quality", agent_id="quality-reviewer", depends_on=["parse"]),
+        StepDefinition(id="report", agent_id="report-generator", depends_on=["security", "quality"]),
+    ]
+)
+```
+
+### Customer Support Routing
+Classify tickets and route to specialist agents:
+
+```python
+workflow = WorkflowDefinition(
+    id="support-routing",
+    name="Support Ticket Router",
+    steps=[
+        StepDefinition(id="classify", agent_id="ticket-classifier"),
+        StepDefinition(id="handle", agent_id="support-agent", depends_on=["classify"]),
+        StepDefinition(id="respond", agent_id="response-generator", depends_on=["handle"]),
+    ]
+)
+```
+
+See the complete examples in the [`examples/`](examples/) directory.
+
+---
+
+## Installation Options
+
+```bash
+# Core only (registry, trust engine, types)
+pip install ai-workflow-fabric
+
+# With REST API server
+pip install ai-workflow-fabric[api]
+
+# With CLI tool
 pip install ai-workflow-fabric[cli]
 
-# Manage agents
-awf agents list
-awf agents register manifest.json
-awf agents trust my-agent
+# With OpenTelemetry observability
+pip install ai-workflow-fabric[otel]
 
-# Run workflows
-awf run workflow.yaml --input '{"query": "AI safety"}'
+# With LLM providers (OpenAI, Anthropic, etc.)
+pip install ai-workflow-fabric[providers]
 
-# Start API server
-awf server start --reload
+# With specific framework adapters
+pip install ai-workflow-fabric[langgraph]
+pip install ai-workflow-fabric[crewai]
+pip install ai-workflow-fabric[autogen]
+
+# Everything
+pip install ai-workflow-fabric[all]
 ```
+
+---
+
+## Core Concepts
+
+### Agents
+An **Agent** is any AI component that can perform tasks. AWF doesn't care what framework it's built with—it just needs a manifest describing its capabilities.
+
+```python
+from awf.core.types import AgentManifest, Capability, CapabilityType, AgentStatus
+
+agent = AgentManifest(
+    id="my-agent",
+    name="My Agent",
+    version="1.0.0",
+    framework="langgraph",  # or "crewai", "autogen", "openai", "custom"
+    capabilities=[
+        Capability(name="web_search", type=CapabilityType.TOOL),
+        Capability(name="summarize", type=CapabilityType.REASONING),
+    ],
+    status=AgentStatus.ACTIVE,
+)
+```
+
+### Registry
+The **Registry** stores and discovers agents. Search by capability, framework, tags, or trust score.
+
+```python
+from awf.registry.memory import InMemoryRegistry
+
+registry = InMemoryRegistry()
+await registry.register(agent)
+
+# Find agents that can search the web
+results = await registry.search(capabilities=["web_search"])
+
+# Find high-trust LangGraph agents
+results = await registry.search(framework="langgraph", min_trust_score=0.8)
+```
+
+### Trust Scoring
+Every agent gets a **trust score** (0.0 - 1.0) based on:
+- Publisher reputation
+- Security audit status
+- Community feedback
+- Permissions requested
+- Historical behavior
+
+Low-trust agents run in stricter sandboxes. Blocked agents (score < 0.4) can't execute at all.
+
+```python
+from awf.security.trust import TrustScoringEngine
+
+trust_engine = TrustScoringEngine()
+score = await trust_engine.compute_score(agent)
+
+print(f"Trust: {score.score:.2f}")
+print(f"Sandbox: {score.sandbox_tier.value}")
+```
+
+### Workflows
+A **Workflow** chains multiple agents together with dependencies, retries, and fallbacks.
+
+```python
+from awf.orchestration import WorkflowDefinition, StepDefinition, RetryPolicy
+
+workflow = WorkflowDefinition(
+    id="my-workflow",
+    name="My Workflow",
+    steps=[
+        StepDefinition(
+            id="step1",
+            agent_id="agent-a",
+            timeout_ms=30000,
+            retry=RetryPolicy(max_attempts=3, backoff_multiplier=2.0),
+        ),
+        StepDefinition(
+            id="step2",
+            agent_id="agent-b",
+            depends_on=["step1"],
+        ),
+    ]
+)
+```
+
+### Policies
+**Policies** control what agents can do in different environments.
+
+```python
+from awf.security.policy import PolicyEngine
+
+policy_engine = PolicyEngine()
+policy_engine.create_default_policies()
+
+# Check if agent can run in production
+result = policy_engine.evaluate(
+    manifest=agent,
+    task=task,
+    trust_score=score,
+    environment="production",
+)
+
+if result.allowed:
+    print("Agent approved for production")
+else:
+    print(f"Denied: {result.violations}")
+```
+
+---
+
+## Observability with Grafana
+
+AWF includes a complete observability stack using Grafana's LGTM (Loki, Grafana, Tempo, Mimir).
+
+### Start the Stack
+
+```bash
+cd docker/grafana
+docker compose up -d
+```
+
+### Access Grafana
+
+Open http://localhost:3000 (username: `admin`, password: `admin`)
+
+### Included Dashboards
+
+| Dashboard | What It Shows |
+|-----------|---------------|
+| **AWF Overview** | Workflow executions, success rates, latency percentiles, error rates |
+| **Agent Fleet Health** | Per-agent metrics, trust scores, resource usage, failure rates |
+| **Cost Tracking** | Token usage and estimated costs per agent and workflow |
+
+### Automatic Alerting
+
+The Watcher Agent receives Grafana alerts and can automatically:
+- Restart failed agents
+- Retry failed workflows
+- Adjust timeouts
+- Disable problematic agents
+- Escalate to humans
+
+See [docs/deploying-with-grafana.md](docs/deploying-with-grafana.md) for full setup instructions.
+
+---
+
+## CLI Reference
+
+```bash
+# Show version
+awf version
+
+# Agents
+awf agents list                    # List all agents
+awf agents get <id>                # Get agent details
+awf agents register manifest.json  # Register from file
+awf agents trust <id>              # Show trust score
+awf agents delete <id>             # Delete agent
+
+# Workflows
+awf workflows list                 # List workflows
+awf workflows run workflow.yaml    # Execute workflow
+awf workflows status <id>          # Check execution status
+awf workflows create --name "X"    # Create template
+
+# Server
+awf server start                   # Start API server
+awf server start --reload          # With auto-reload
+awf server health                  # Check server health
+```
+
+---
+
+## API Reference
+
+The REST API runs on port 8000 by default. Full OpenAPI documentation is available at `/docs`.
+
+### Key Endpoints
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `POST` | `/agents` | Register an agent |
+| `GET` | `/agents` | List/search agents |
+| `GET` | `/agents/{id}` | Get agent details |
+| `GET` | `/agents/{id}/trust` | Get trust score |
+| `DELETE` | `/agents/{id}` | Unregister agent |
+| `POST` | `/workflows` | Create workflow |
+| `GET` | `/workflows` | List workflows |
+| `POST` | `/workflows/{id}/execute` | Execute workflow |
+| `GET` | `/executions/{id}` | Get execution status |
+| `POST` | `/webhooks/grafana-alerts` | Receive Grafana alerts |
+| `GET` | `/watcher/approvals` | List pending approvals |
 
 ---
 
@@ -163,249 +411,86 @@ awf server start --reload
 │  └──────────────┘ └──────────────┘ └──────┬───────┘ └─────────┬─────────┘   │
 └──────────────────────────────────────────┼────────────────────┼─────────────┘
                                            │                    │
-                    ┌──────────────────────┼────────────────────┼──────────────┐
-                    │                 OTel │       Webhooks     │ MCP          │
-                    ▼                      ▼                    ▼              │
-         ┌───────────────────────────────────────────────────────────────────┐ │
-         │                    Grafana LGTM Stack                              │ │
-         │   ┌─────────┐   ┌─────────┐   ┌─────────┐   ┌─────────┐          │ │
-         │   │  Alloy  │──▶│  Mimir  │   │  Loki   │   │  Tempo  │          │ │
-         │   │ (OTel)  │   │(Metrics)│   │ (Logs)  │   │(Traces) │          │ │
-         │   └─────────┘   └────┬────┘   └────┬────┘   └────┬────┘          │ │
-         │                      └─────────────┴─────────────┘               │ │
-         │                                 │                                 │ │
-         │                         ┌───────▼───────┐                        │ │
-         │                         │    Grafana    │                        │ │
-         │                         │  Dashboards   │                        │ │
-         │                         └───────────────┘                        │ │
-         └───────────────────────────────────────────────────────────────────┘ │
-                                                                               │
-┌──────────────────────────────────────────────────────────────────────────────┘
-│
-│  Framework Adapters
-│  ┌─────────────┐    ┌─────────────┐    ┌─────────────┐    ┌─────────────┐
-│  │  LangGraph  │    │   CrewAI    │    │   AutoGen   │    │   OpenAI    │
-│  │   Adapter   │    │   Adapter   │    │   Adapter   │    │   Adapter   │
-│  └─────────────┘    └─────────────┘    └─────────────┘    └─────────────┘
+                                      OTel │      Webhooks      │
+                                           ▼                    ▼
+                              ┌─────────────────────────────────────────────┐
+                              │           Grafana LGTM Stack                │
+                              │  Alloy → Mimir/Loki/Tempo → Grafana         │
+                              └─────────────────────────────────────────────┘
+                                                    │
+                    ┌───────────────────────────────┼───────────────────────────┐
+                    │                               │                           │
+                    ▼                               ▼                           ▼
+           ┌─────────────┐                 ┌─────────────┐              ┌─────────────┐
+           │  LangGraph  │                 │   CrewAI    │              │   AutoGen   │
+           │   Adapter   │                 │   Adapter   │              │   Adapter   │
+           └─────────────┘                 └─────────────┘              └─────────────┘
 ```
-
----
-
-## Key Features
-
-### Trust Scoring
-
-AWF computes trust scores for agents based on 5 factors:
-
-| Factor | Weight | Description |
-|--------|--------|-------------|
-| Publisher Trust | 25% | Verified publisher, reputation |
-| Audit Status | 25% | Security audits, findings |
-| Community Trust | 20% | Usage, ratings, reports |
-| Permission Analysis | 15% | Requested permissions risk |
-| Historical Behavior | 15% | Past execution history |
-
-Based on trust score, agents are assigned to sandbox tiers:
-
-| Score Range | Sandbox Tier | Overhead |
-|-------------|--------------|----------|
-| 0.90 - 1.00 | WASM | ~10ms |
-| 0.70 - 0.89 | gVisor | ~100ms |
-| 0.40 - 0.69 | gVisor Strict | ~150ms |
-| 0.00 - 0.39 | BLOCKED | N/A |
-
-### Workflow Orchestration
-
-Define multi-agent workflows with DAG-based execution:
-
-```yaml
-# workflow.yaml
-id: research-pipeline
-name: Research Pipeline
-steps:
-  - id: search
-    agent_id: web-search-agent
-    timeout_ms: 30000
-    retry:
-      max_attempts: 3
-      backoff_multiplier: 2.0
-
-  - id: analyze
-    agent_id: analysis-agent
-    depends_on: [search]
-    
-  - id: summarize
-    agent_id: summarizer-agent
-    depends_on: [analyze]
-    fallback_agent_id: backup-summarizer
-```
-
-### Observability with Grafana
-
-Full LGTM stack (Loki, Grafana, Tempo, Mimir) for enterprise observability:
-
-```bash
-# Start the observability stack
-cd docker/grafana
-docker compose up -d
-
-# Open Grafana
-open http://localhost:3000  # admin/admin
-```
-
-**Included Dashboards:**
-- **AWF Overview**: Workflow executions, success rates, latency
-- **Agent Fleet Health**: Per-agent metrics, trust scores, resource usage
-- **Cost Tracking**: Token usage and costs per agent/workflow
-
-### Watcher Agent (Auto-Remediation)
-
-The Watcher Agent monitors your agent fleet and automatically fixes issues:
-
-```python
-from awf.agents.watcher import WatcherAgent, WatcherConfig
-
-# Configure the watcher
-config = WatcherConfig(
-    grafana_url="http://localhost:3000",
-    investigation_timeout=300,
-    auto_approve_low_risk=True,  # Automatically fix low-risk issues
-)
-
-watcher = WatcherAgent(config)
-
-# Process an alert (usually via webhook)
-result = await watcher.handle_alert(grafana_alert)
-print(f"Recommended: {result.recommended_action}")
-print(f"Risk: {result.risk_level}")
-```
-
-**Built-in Remediation Scripts:**
-- `restart_agent`: Restart a failed agent
-- `retry_workflow`: Retry a failed workflow with backoff
-- `increase_timeout`: Adjust timeout for slow agents
-- `disable_agent`: Disable a problematic agent
-- `notify_oncall`: Escalate to human operator
-
----
-
-## LLM Provider Support
-
-AWF includes unified LLM providers for all major services:
-
-```python
-from awf.providers import OpenAIProvider, AnthropicProvider, Message, Role
-
-# Use any provider with the same interface
-provider = OpenAIProvider()  # or AnthropicProvider(), GoogleProvider(), etc.
-
-response = await provider.complete([
-    Message(role=Role.USER, content="Hello!")
-])
-
-print(f"Response: {response.content}")
-print(f"Cost: ${response.usage.total_cost:.6f}")
-```
-
-**Supported Providers:**
-- OpenAI (GPT-4, GPT-4o, etc.)
-- Anthropic (Claude 3.5, Claude 3)
-- Google (Gemini Pro, Gemini Flash)
-- Mistral (Mistral Large, Codestral)
-- Ollama (Local models)
-
----
-
-## Project Status
-
-**Current Phase:** v1.0.0-alpha
-
-| Component | Status |
-|-----------|--------|
-| ASP Specification | ✅ Complete |
-| Core Types | ✅ Complete |
-| LangGraph Adapter | ✅ Complete |
-| CrewAI Adapter | ✅ Complete |
-| AutoGen Adapter | ✅ Complete |
-| In-Memory Registry | ✅ Complete |
-| SQLite Registry | ✅ Complete |
-| Trust Engine | ✅ Complete |
-| Policy Engine | ✅ Complete |
-| Sandbox Orchestrator | ✅ Complete |
-| REST API | ✅ Complete |
-| Workflow Orchestrator | ✅ Complete |
-| Grafana Integration | ✅ Complete |
-| Watcher Agent | ✅ Complete |
-| LLM Providers | ✅ Complete |
-| Test Suite | ✅ 534 tests |
-| CLI Tool | ✅ Complete |
-| Web UI | 🚧 Planned |
-
----
-
-## Documentation
-
-- **[ASP Specification](spec/asp-specification.md)**: The Agent State Protocol
-- **[HTTP Binding](spec/asp-http-binding.md)**: REST API specification
-- **[Trust Scoring](spec/trust-scoring.md)**: How agents are evaluated
-- **[Deploying with Grafana](docs/deploying-with-grafana.md)**: Observability setup
-- **[Watcher Agent Guide](docs/watcher-agent-guide.md)**: Auto-remediation configuration
-- **[Grafana Dashboards](docs/grafana-dashboards.md)**: Dashboard usage guide
 
 ---
 
 ## Examples
 
-See the `examples/` directory:
-
-| Example | Description |
-|---------|-------------|
-| [quickstart.py](examples/quickstart.py) | Basic usage demo |
-| [llm_providers.py](examples/llm_providers.py) | LLM provider examples |
-| [research_pipeline/](examples/research_pipeline/) | Multi-agent research workflow |
-| [code_review/](examples/code_review/) | Code analysis pipeline |
-| [customer_support/](examples/customer_support/) | Support ticket routing |
-
-```bash
-# Run the quickstart
-python examples/quickstart.py
-
-# Run with observability
-cd docker/grafana && docker compose up -d
-python examples/research_pipeline/main.py
-```
+| Example | Description | Run Command |
+|---------|-------------|-------------|
+| [quickstart.py](examples/quickstart.py) | Basic registry, trust, and policy demo | `python examples/quickstart.py` |
+| [llm_providers.py](examples/llm_providers.py) | Using OpenAI, Anthropic, etc. | `python examples/llm_providers.py` |
+| [research_pipeline/](examples/research_pipeline/) | Multi-agent research workflow | `python examples/research_pipeline/main.py` |
+| [code_review/](examples/code_review/) | Security and quality code review | `python examples/code_review/main.py` |
+| [customer_support/](examples/customer_support/) | Ticket classification and routing | `python examples/customer_support/main.py` |
 
 ---
 
-## Package Structure
+## LLM Providers
 
+AWF includes unified providers for major LLM services:
+
+```python
+from awf.providers import OpenAIProvider, Message, Role
+
+provider = OpenAIProvider()
+
+response = await provider.complete([
+    Message(role=Role.SYSTEM, content="You are a helpful assistant."),
+    Message(role=Role.USER, content="What is 2+2?"),
+])
+
+print(response.content)  # "4"
+print(f"Cost: ${response.usage.total_cost:.6f}")
 ```
-awf/
-├── core/              # Core ASP types and protocols
-├── adapters/          # Framework adapters (LangGraph, CrewAI, AutoGen)
-├── registry/          # Agent registry (memory, SQLite)
-├── security/          # Trust scoring, policy engine, sandbox
-├── orchestration/     # Workflow DAG execution
-├── providers/         # LLM providers (OpenAI, Anthropic, etc.)
-├── agents/            # Built-in agents (Watcher)
-├── api/               # FastAPI REST API
-└── cli/               # Typer CLI
-```
+
+**Supported:** OpenAI, Anthropic, Google (Gemini), Mistral, Ollama (local)
+
+---
+
+## Project Status
+
+| Component | Status |
+|-----------|--------|
+| Core Types & Registry | ✅ Complete |
+| Trust & Policy Engine | ✅ Complete |
+| Framework Adapters | ✅ LangGraph, CrewAI, AutoGen |
+| Workflow Orchestrator | ✅ Complete |
+| REST API | ✅ Complete |
+| Grafana Observability | ✅ Complete |
+| Watcher Agent | ✅ Complete |
+| LLM Providers | ✅ Complete |
+| CLI Tool | ✅ Complete |
+| Test Suite | ✅ 534 tests |
+| Web UI | 🚧 Planned |
 
 ---
 
 ## Contributing
 
-We welcome contributions! Please see [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
-
-### Development Setup
+We welcome contributions! See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
 
 ```bash
-# Clone the repository
+# Clone
 git clone https://github.com/CryptoDoru/Workflow-Fabric.git
 cd Workflow-Fabric
 
-# Install all dependencies
+# Install dev dependencies
 pip install -e ".[dev,api,cli]"
 
 # Run tests
@@ -413,46 +498,7 @@ pytest
 
 # Run linting
 ruff check awf tests
-
-# Type checking
-mypy awf
 ```
-
-### Running the Full Stack
-
-```bash
-# Terminal 1: Start observability
-cd docker/grafana && docker compose up -d
-
-# Terminal 2: Start API server
-uvicorn awf.api.app:app --reload
-
-# Terminal 3: Run tests
-pytest --cov=awf
-```
-
----
-
-## Roadmap
-
-### v1.0.0 (Current)
-- [x] Core registry and trust engine
-- [x] Framework adapters (LangGraph, CrewAI, AutoGen)
-- [x] REST API with FastAPI
-- [x] Workflow orchestration
-- [x] Grafana observability
-- [x] Watcher agent
-
-### v1.1.0 (Q1 2025)
-- [ ] Grafana MCP Server integration
-- [ ] LLM-powered root cause analysis
-- [ ] Slack/PagerDuty integrations
-- [ ] Web UI for workflow builder
-
-### v2.0.0 (Q2 2025)
-- [ ] Distributed execution
-- [ ] Kubernetes operator
-- [ ] Multi-tenant SaaS mode
 
 ---
 
@@ -462,13 +508,14 @@ Apache License 2.0 - See [LICENSE](LICENSE) for details.
 
 ---
 
-## Contact
+## Links
 
-- **GitHub Issues**: [Report bugs or request features](https://github.com/CryptoDoru/Workflow-Fabric/issues)
-- **Discussions**: [Join the conversation](https://github.com/CryptoDoru/Workflow-Fabric/discussions)
+- **GitHub**: https://github.com/CryptoDoru/Workflow-Fabric
+- **Issues**: https://github.com/CryptoDoru/Workflow-Fabric/issues
+- **Discussions**: https://github.com/CryptoDoru/Workflow-Fabric/discussions
 
 ---
 
 <p align="center">
-  <strong>Built with love for the AI agent community</strong>
+  <strong>Built for teams who need AI agents to work together reliably in production.</strong>
 </p>
